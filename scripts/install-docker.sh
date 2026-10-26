@@ -32,14 +32,17 @@ if ! command -v docker >/dev/null 2>&1; then
   [[ "$INSTALL_DOCKER" == 1 ]] || fail 'Docker is not installed. Re-run with --install-docker.'
   [[ "$(id -u)" -eq 0 ]] || fail '--install-docker must run as root.'
   command -v apt-get >/dev/null 2>&1 || fail 'Automatic Docker installation supports apt-based Linux.'
+  . /etc/os-release
+  distro="${ID:-}"
+  case "$distro" in
+    ubuntu|debian) ;;
+    *) fail "Automatic Docker installation supports Ubuntu/Debian; detected: ${distro:-unknown}" ;;
+  esac
   apt-get update
   apt-get install -y ca-certificates curl gnupg
   install -m 0755 -d /etc/apt/keyrings
   curl -fsSL "https://download.docker.com/linux/$distro/gpg" | gpg --dearmor --yes -o /etc/apt/keyrings/docker.gpg
   chmod a+r /etc/apt/keyrings/docker.gpg
-  . /etc/os-release
-  distro="${ID:-ubuntu}"
-  [[ "$distro" == ubuntu || "$distro" == debian ]] || distro=ubuntu
   codename="${VERSION_CODENAME:-$(lsb_release -cs 2>/dev/null || echo noble)}"
   printf 'deb [arch=%s signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/%s %s stable\n' "$(dpkg --print-architecture)" "$distro" "$codename" > /etc/apt/sources.list.d/docker.list
   apt-get update
