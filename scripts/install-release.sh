@@ -4,6 +4,7 @@ set -Eeuo pipefail
 VERSION="latest"
 REPOSITORY="${ZBXTABLE_REPOSITORY:-linguyuebai/zbxtable}"
 INSTALL_ROOT="${ZBXTABLE_INSTALL_ROOT:-/opt/zbxtable}"
+RUNTIME_ROOT="${ZBXTABLE_RUNTIME_ROOT:-/usr/local/zbxtable}"
 FORCE=1
 SKIP_CHECKSUM=0
 SKIP_FRONTEND=0
@@ -17,6 +18,7 @@ Usage: bash install-release.sh [options]
   --version=TAG       Release tag, default: latest
   --repository=ORG/REPO
   --install-root=PATH Default: /opt/zbxtable
+  --runtime-root=PATH Default systemd runtime: /usr/local/zbxtable
   --install-deps       Install missing Linux packages and Go 1.24.0
   --force               Replace an existing install directory (default)
   --no-overwrite        Refuse to replace an existing install directory
@@ -29,6 +31,7 @@ EOF
     --version=*) VERSION="${arg#*=}" ;;
     --repository=*) REPOSITORY="${arg#*=}" ;;
     --install-root=*) INSTALL_ROOT="${arg#*=}" ;;
+    --runtime-root=*) RUNTIME_ROOT="${arg#*=}" ;;
     --force) FORCE=1 ;;
     --no-overwrite) FORCE=0 ;;
     --skip-checksum) SKIP_CHECKSUM=1 ;;
@@ -96,7 +99,8 @@ if command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet zbxtable.
   log 'Stopping existing zbxtable.service before replacement.'
   systemctl stop zbxtable.service
 fi
-if [[ -e "$INSTALL_ROOT/config/app.conf" ]]; then cp "$INSTALL_ROOT/config/app.conf" "$TEMP_DIR/app.conf.saved"; fi
+if [[ -f "$RUNTIME_ROOT/config/app.conf" ]]; then cp -p "$RUNTIME_ROOT/config/app.conf" "$TEMP_DIR/app.conf.saved"; fi
+if [[ ! -f "$TEMP_DIR/app.conf.saved" && -f "$INSTALL_ROOT/config/app.conf" ]]; then cp -p "$INSTALL_ROOT/config/app.conf" "$TEMP_DIR/app.conf.saved"; fi
 rm -rf "$INSTALL_ROOT"
 mkdir -p "$INSTALL_ROOT"
 tar -xzf "$ARCHIVE" -C "$TEMP_DIR"
@@ -107,6 +111,12 @@ for required_file in scripts/install.sh scripts/run.sh scripts/uninstall.sh conf
   [[ -f "$INSTALL_ROOT/$required_file" ]] || fail "Release is missing required file: $required_file"
 done
 if [[ -f "$TEMP_DIR/app.conf.saved" ]]; then install -D -m 600 "$TEMP_DIR/app.conf.saved" "$INSTALL_ROOT/config/app.conf"; fi
+if [[ "$SKIP_FRONTEND" != 1 && ! -s "$INSTALL_ROOT/api/v1/web/web/index.html" ]]; then
+  log 'Release has no embedded frontend; installing frontend build prerequisites.'
+  export ZBXTABLE_NEED_FRONTEND_BUILD=1
+  bash "$INSTALL_ROOT/scripts/bootstrap-linux.sh"
+  unset ZBXTABLE_NEED_FRONTEND_BUILD
+fi
 if [[ "$INSTALL_DEPS" == 1 ]]; then bash "$INSTALL_ROOT/scripts/bootstrap-linux.sh"; fi
 if [[ "$SKIP_FRONTEND" == 1 ]]; then export ZBXTABLE_SKIP_FRONTEND=1; fi
 bash "$INSTALL_ROOT/scripts/install.sh"
@@ -119,7 +129,7 @@ if [[ "$NO_START" != 1 && -d /run/systemd/system ]] && command -v systemctl >/de
     fail 'zbxtable.service did not start. See the service log above.'
   fi
   systemctl --no-pager --full status zbxtable.service
-  HTTP_PORT="$(sed -n 's/^httpport=//p' "$INSTALL_ROOT/config/app.conf" | head -n 1)"
+  HTTP_PORT="$(sed -n 's/^httpport=//p' "$RUNTIME_ROOT/config/app.conf" | head -n 1)"
   HTTP_PORT="${HTTP_PORT:-8088}"
   if command -v curl >/dev/null 2>&1; then
     healthy=0
