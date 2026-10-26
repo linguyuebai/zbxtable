@@ -166,6 +166,14 @@ curl -fsSL https://github.com/linguyuebai/zbxtable/releases/download/v3.0.7/inst
 
 脚本会输出环境检查、Release 地址、压缩包名称、SHA256 结果、必需文件检查、安装路径、编译结果和 systemd 状态。数据库密码不会写入 Release；首次安装时由 `scripts/install.sh` 交互读取。
 
+Docker 一行安装（自动检查 Docker；缺少 Docker 时安装，支持端口参数）：
+
+```bash
+curl -fsSL https://github.com/linguyuebai/zbxtable/releases/download/v3.0.7/install-release.sh | sudo bash -s -- --version=v3.0.7 --docker-install --port=8088
+```
+
+已有 Docker 时使用 `--docker`；自定义端口可改为 `--port=9088`。Docker 安装会构建带前端的镜像、挂载 `config/` 和运行目录、启动 `zbxtable` 容器，并用 HTTP 请求验证页面。数据库连接仍由 `config/app.conf` 控制。
+
 Ubuntu、Debian、CentOS 等 Linux：需要 `curl`、`tar`、`sha256sum`、`python3`、Go 1.24+、Git 和 Node.js/npm。下载脚本后执行：
 
 ```bash

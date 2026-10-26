@@ -10,6 +10,9 @@ SKIP_CHECKSUM=0
 SKIP_FRONTEND=0
 INSTALL_DEPS=0
 NO_START=0
+DOCKER=0
+DOCKER_INSTALL=0
+DOCKER_PORT="${ZBXTABLE_HTTP_PORT:-8088}"
 for arg in "$@"; do
   case "$arg" in
     -h|--help)
@@ -25,6 +28,9 @@ Usage: bash install-release.sh [options]
   --skip-checksum       Skip SHA256 verification (not recommended)
   --skip-frontend       Do not build/download the frontend
   --no-start            Install but do not start the systemd service
+  --docker              Install and run with Docker instead of systemd
+  --docker-install      Install Docker if it is missing (apt-based Linux)
+  --port=PORT           Docker host port (default: 8088)
 EOF
       exit 0
       ;;
@@ -38,6 +44,9 @@ EOF
     --skip-frontend) SKIP_FRONTEND=1 ;;
     --install-deps) INSTALL_DEPS=1 ;;
     --no-start) NO_START=1 ;;
+    --docker) DOCKER=1 ;;
+    --docker-install) DOCKER=1; DOCKER_INSTALL=1 ;;
+    --port=*) DOCKER_PORT="${arg#*=}" ;;
     *) echo "Unknown option: $arg" >&2; exit 2 ;;
   esac
 done
@@ -50,7 +59,7 @@ trap cleanup EXIT
 log() { printf '[zbxtable-release] %s\n' "$*"; }
 fail() { printf '[zbxtable-release] ERROR: %s\n' "$*" >&2; exit 1; }
 
-if [[ "$INSTALL_DEPS" == 1 ]]; then
+if [[ "$INSTALL_DEPS" == 1 && "$DOCKER" != 1 ]]; then
   BOOTSTRAP_URL="https://github.com/$REPOSITORY/releases/latest/download/bootstrap-linux.sh"
   [[ "$VERSION" == latest ]] || BOOTSTRAP_URL="https://github.com/$REPOSITORY/releases/download/$VERSION/bootstrap-linux.sh"
   log "Preparing Linux environment from $BOOTSTRAP_URL"
@@ -107,10 +116,16 @@ tar -xzf "$ARCHIVE" -C "$TEMP_DIR"
 SOURCE_DIR="$(find "$TEMP_DIR" -mindepth 1 -maxdepth 1 -type d -name 'zbxtable-*' | head -n 1)"
 [[ -n "$SOURCE_DIR" ]] || { echo 'Archive has no zbxtable source directory.' >&2; exit 1; }
 cp -a "$SOURCE_DIR"/. "$INSTALL_ROOT/"
-for required_file in scripts/install.sh scripts/run.sh scripts/uninstall.sh config/app.conf.example; do
+for required_file in scripts/install.sh scripts/run.sh scripts/uninstall.sh scripts/install-docker.sh config/app.conf.example; do
   [[ -f "$INSTALL_ROOT/$required_file" ]] || fail "Release is missing required file: $required_file"
 done
 if [[ -f "$TEMP_DIR/app.conf.saved" ]]; then install -D -m 600 "$TEMP_DIR/app.conf.saved" "$INSTALL_ROOT/config/app.conf"; fi
+if [[ "$DOCKER" == 1 ]]; then
+  docker_args=("--port=$DOCKER_PORT")
+  [[ "$DOCKER_INSTALL" == 1 ]] && docker_args+=(--install-docker)
+  bash "$INSTALL_ROOT/scripts/install-docker.sh" "${docker_args[@]}"
+  exit 0
+fi
 if [[ "$SKIP_FRONTEND" != 1 && ! -s "$INSTALL_ROOT/api/v1/web/web/index.html" ]]; then
   log 'Release has no embedded frontend; installing frontend build prerequisites.'
   export ZBXTABLE_NEED_FRONTEND_BUILD=1

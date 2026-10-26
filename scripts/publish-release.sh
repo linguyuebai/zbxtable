@@ -19,7 +19,7 @@ for arg in "$@"; do
 done
 
 command -v git >/dev/null 2>&1 || { echo 'Required command not found: git' >&2; exit 1; }
-required=(README.md README.zh-CN.md go.mod go.sum .gitignore config/app.conf.example scripts/install.sh scripts/install.ps1 scripts/install-release.sh scripts/install-release.ps1 scripts/bootstrap-linux.sh scripts/uninstall.sh scripts/uninstall.ps1 docs/README.md)
+required=(README.md README.zh-CN.md go.mod go.sum .gitignore config/app.conf.example scripts/install.sh scripts/install.ps1 scripts/install-release.sh scripts/install-release.ps1 scripts/bootstrap-linux.sh scripts/install-docker.sh deployments/docker/Dockerfile.release scripts/uninstall.sh scripts/uninstall.ps1 docs/README.md)
 if [[ "$SKIP_CHECKS" != 1 ]]; then
   missing=()
   for file in "${required[@]}"; do [[ -f "$ROOT_DIR/$file" ]] || missing+=("$file"); done
@@ -39,7 +39,7 @@ CHECKSUM="$ARCHIVE.sha256"
 [[ -f "$ARCHIVE" && -f "$CHECKSUM" ]] || { echo 'Source archive or checksum was not created.' >&2; exit 1; }
 
 assets=("$ARCHIVE" "$CHECKSUM")
-for name in install-release.sh install-release.ps1 install-release.bat install.sh install.ps1 install.bat bootstrap-linux.sh uninstall.sh uninstall.ps1 uninstall.bat; do
+for name in install-release.sh install-release.ps1 install-release.bat install.sh install.ps1 install.bat bootstrap-linux.sh install-docker.sh uninstall.sh uninstall.ps1 uninstall.bat; do
   [[ -f "$ROOT_DIR/scripts/$name" ]] && assets+=("$ROOT_DIR/scripts/$name")
 done
 printf 'Package: %s\nChecksum: %s\nInstaller assets: %d\n' "$ARCHIVE" "$CHECKSUM" "$((${#assets[@]} - 2))"

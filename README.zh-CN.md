@@ -371,6 +371,14 @@ ZbxTable 使用 Apache-2.0 许可证。详见 [LICENSE](LICENSE) 文件。
 curl -fsSL https://github.com/linguyuebai/zbxtable/releases/download/v3.0.7/install-release.sh | sudo bash -s -- --version=v3.0.7 --install-deps --install-root=/opt/zbxtable
 ```
 
+Docker 一键安装（自动检测 Docker、可选安装 Docker、构建前端镜像并检查网页）：
+
+```bash
+curl -fsSL https://github.com/linguyuebai/zbxtable/releases/download/v3.0.7/install-release.sh | sudo bash -s -- --version=v3.0.7 --docker-install --port=8088
+```
+
+自定义端口时把 `--port=8088` 改为例如 `--port=9088`，访问 `http://服务器IP:9088`。
+
 Release 发布后，可通过 `scripts/install-release.sh`（Linux）或 `scripts/install-release.ps1`（Windows）从 GitHub 下载并校验安装。完整命令、系统依赖、数据库共用说明和故障排查见[GitHub 上传、打包与一键安装指南](./docs/GitHub上传与发布指南.md)。
 
 3.0.7 的完整部署、分别部署、升级回滚、巡检、日志告警和卸载步骤见 [3.0.7 完整部署手册](./docs/3.0.7-完整部署手册.md)。

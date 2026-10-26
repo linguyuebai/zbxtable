@@ -1,0 +1,25 @@
+FROM golang:1.24-bookworm AS builder
+
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN test -s api/v1/web/web/index.html
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags='-s -w' -o /out/zbxtable ./main.go
+
+FROM debian:bookworm-slim
+ENV TZ=Asia/Shanghai
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates tzdata wget \
+    && rm -rf /var/lib/apt/lists/* \
+    && useradd --system --home-dir /app --shell /usr/sbin/nologin zbxtable
+WORKDIR /app
+COPY --from=builder /out/zbxtable /app/zbxtable
+COPY config/app.conf.example /app/config/app.conf.example
+RUN mkdir -p /app/config /app/log /app/download /app/upload \
+    && chown -R zbxtable:zbxtable /app \
+    && chmod 0755 /app/zbxtable
+USER zbxtable
+EXPOSE 8088
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=5 \
+  CMD wget --spider --quiet http://127.0.0.1:8088/ || exit 1
+ENTRYPOINT ["/app/zbxtable", "web"]

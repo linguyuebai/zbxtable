@@ -21,7 +21,7 @@ $required = @(
   'README.md', 'README.zh-CN.md', 'go.mod', 'go.sum', '.gitignore',
   'config/app.conf.example', 'scripts/install.ps1', 'scripts/install.bat',
   'scripts/install.sh', 'scripts/package-release.ps1', 'scripts/package-release.sh',
-  'scripts/install-release.ps1', 'scripts/install-release.sh', 'scripts/bootstrap-linux.sh', 'scripts/uninstall.ps1', 'scripts/uninstall.sh', 'docs/README.md'
+  'scripts/install-release.ps1', 'scripts/install-release.sh', 'scripts/bootstrap-linux.sh', 'scripts/install-docker.sh', 'deployments/docker/Dockerfile.release', 'scripts/uninstall.ps1', 'scripts/uninstall.sh', 'docs/README.md'
 )
 if (-not $SkipChecks) {
   $missing = @($required | Where-Object { -not (Test-Path -LiteralPath (Join-Path $Root $_)) })
@@ -50,7 +50,7 @@ if (-not $archive) { throw 'Source ZIP was not created.' }
 $tarArchive = Get-Item ((Join-Path $Root 'dist') + "\zbxtable-$($Version -replace '/', '-')-source.tar.gz")
 
 $assets = @($archive.FullName, $archive.FullName + '.sha256', $tarArchive.FullName, $tarArchive.FullName + '.sha256')
-foreach ($name in @('install-release.ps1', 'install-release.bat', 'install-release.sh', 'install.ps1', 'install.bat', 'install.sh', 'bootstrap-linux.sh', 'uninstall.ps1', 'uninstall.bat', 'uninstall.sh')) {
+foreach ($name in @('install-release.ps1', 'install-release.bat', 'install-release.sh', 'install.ps1', 'install.bat', 'install.sh', 'bootstrap-linux.sh', 'install-docker.sh', 'uninstall.ps1', 'uninstall.bat', 'uninstall.sh')) {
   $path = Join-Path $Root "scripts\$name"
   if (Test-Path -LiteralPath $path) { $assets += $path }
 }
