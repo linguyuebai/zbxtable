@@ -17,6 +17,9 @@ DOCKER_PORT="${ZBXTABLE_HTTP_PORT:-8088}"
 PORT_SET=0
 ENV_READY=0
 NO_FIREWALL=0
+INTERACTIVE=0
+MENU_PURGE=0
+ASSUME_YES=0
 STEP=0
 if [[ -t 1 ]]; then
   C_GREEN=$'\033[32m'; C_CYAN=$'\033[36m'; C_YELLOW=$'\033[33m'; C_RESET=$'\033[0m'
@@ -43,6 +46,10 @@ Usage: bash install-release.sh [options]
   --docker-install      Install Docker if it is missing (apt-based Linux)
   --port=PORT           Web/Docker port (default: 8088)
   --no-firewall         Do not add the web port to an active firewall
+  --menu                Show the interactive install/uninstall menu (default without options)
+  --uninstall           Uninstall systemd service and ZbxTable container
+  --purge               With --uninstall, also remove saved configuration
+  --yes                 With --uninstall, skip the confirmation prompt
 EOF
       exit 0
       ;;
@@ -60,9 +67,56 @@ EOF
     --docker-install) DOCKER=1; DOCKER_INSTALL=1 ;;
     --port=*) DOCKER_PORT="${arg#*=}"; PORT_SET=1 ;;
     --no-firewall) NO_FIREWALL=1 ;;
+    --menu) INTERACTIVE=1 ;;
+    --uninstall) ACTION=uninstall ;;
+    --purge) MENU_PURGE=1 ;;
+    --yes) ASSUME_YES=1 ;;
     *) echo "Unknown option: $arg" >&2; exit 2 ;;
   esac
 done
+
+if [[ "$#" == 0 || "$INTERACTIVE" == 1 ]]; then
+  [[ -r /dev/tty && -w /dev/tty ]] || fail 'Interactive menu needs a terminal. Run with --help and pass install options directly.'
+  printf '\nZbxTable 安装管理器\n  1) 系统服务安装（systemd）\n  2) Docker 安装（缺少 Docker 时自动安装）\n  3) 卸载 ZbxTable（系统服务和 Docker 容器）\n  4) 退出\n\n' > /dev/tty
+  printf '请选择 [1-4]: ' > /dev/tty
+  IFS= read -r MENU_CHOICE < /dev/tty || fail 'Could not read menu selection.'
+  case "$MENU_CHOICE" in
+    1) DOCKER=0; INSTALL_DEPS=1 ;;
+    2) DOCKER=1; DOCKER_INSTALL=1 ;;
+    3) ACTION=uninstall ;;
+    4) printf '已退出。\n' > /dev/tty; exit 0 ;;
+    *) fail 'Invalid selection. Choose 1, 2, 3, or 4.' ;;
+  esac
+  if [[ "${ACTION:-}" == uninstall ]]; then
+    printf '卸载选项：\n  1) 保留配置文件\n  2) 删除配置和程序文件\n请选择 [1-2]（默认 1）: ' > /dev/tty
+    IFS= read -r PURGE_CHOICE < /dev/tty || fail 'Could not read uninstall selection.'
+    case "$PURGE_CHOICE" in
+      ''|1) MENU_PURGE=0 ;;
+      2) MENU_PURGE=1 ;;
+      *) fail 'Invalid selection. Choose 1 or 2.' ;;
+    esac
+    printf '卸载会停止并移除 ZbxTable systemd 服务及其 Docker 容器；不会删除 Zabbix 服务或数据库。输入 DELETE 确认: ' > /dev/tty
+    IFS= read -r CONFIRM_UNINSTALL < /dev/tty || fail 'Could not read uninstall confirmation.'
+    [[ "$CONFIRM_UNINSTALL" == DELETE ]] || { printf '已取消卸载。\n' > /dev/tty; exit 0; }
+  else
+    printf '选择版本：\n  1) 稳定版本 v3.0.7\n  2) 最新 Release（latest）\n  3) 输入其他版本标签\n请选择 [1-3]（默认 1）: ' > /dev/tty
+    IFS= read -r MENU_VERSION_CHOICE < /dev/tty || fail 'Could not read version selection.'
+    case "${MENU_VERSION_CHOICE:-1}" in
+      1) VERSION=v3.0.7 ;;
+      2) VERSION=latest ;;
+      3)
+        printf '请输入版本标签（例如 v3.0.7）: ' > /dev/tty
+        IFS= read -r VERSION < /dev/tty || fail 'Could not read version tag.'
+        [[ -n "$VERSION" ]] || fail 'Version tag cannot be empty.'
+        ;;
+      *) fail 'Invalid selection. Choose 1, 2, or 3.' ;;
+    esac
+    printf 'Web 端口 [默认 %s]: ' "$DOCKER_PORT" > /dev/tty
+    IFS= read -r MENU_PORT < /dev/tty || fail 'Could not read port.'
+    DOCKER_PORT="${MENU_PORT:-$DOCKER_PORT}"
+    PORT_SET=1
+  fi
+fi
 
 [[ "$(id -u)" -eq 0 ]] || fail 'Run this installer as root (for example: curl ... | sudo bash -s -- ...).'
 [[ "$DOCKER_PORT" =~ ^[0-9]+$ ]] && (( DOCKER_PORT >= 1 && DOCKER_PORT <= 65535 )) || fail "Invalid port: $DOCKER_PORT"
@@ -75,6 +129,18 @@ trap cleanup EXIT
 log() { printf '%s[zbxtable] %s%s\n' "$C_CYAN" "$*" "$C_RESET"; }
 step() { STEP=$((STEP + 1)); printf '%s[%02d] %s%s\n' "$C_GREEN" "$STEP" "$*" "$C_RESET"; }
 warn() { printf '%s[zbxtable] WARNING: %s%s\n' "$C_YELLOW" "$*" "$C_RESET" >&2; }
+
+if [[ "${ACTION:-}" == uninstall ]]; then
+  step 'Downloading the verified release uninstaller'
+  if [[ "$VERSION" == latest ]]; then UNINSTALL_URL="https://github.com/$REPOSITORY/releases/latest/download/uninstall.sh"; else UNINSTALL_URL="https://github.com/$REPOSITORY/releases/download/$VERSION/uninstall.sh"; fi
+  curl -fsSL "$UNINSTALL_URL" -o "$TEMP_DIR/uninstall.sh" || fail "Unable to download uninstaller: $UNINSTALL_URL"
+  chmod 700 "$TEMP_DIR/uninstall.sh"
+  uninstall_args=("--install-root=$INSTALL_ROOT" "--runtime-root=$RUNTIME_ROOT")
+  [[ "$MENU_PURGE" == 1 ]] && uninstall_args+=(--purge)
+  [[ "$ASSUME_YES" == 1 || "$INTERACTIVE" == 1 ]] && uninstall_args+=(--yes)
+  bash "$TEMP_DIR/uninstall.sh" "${uninstall_args[@]}"
+  exit $?
+fi
 
 configure_firewall() {
   local port="$1"

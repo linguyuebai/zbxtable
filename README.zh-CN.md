@@ -15,6 +15,16 @@ ZbxTable 可以直接使用 Zabbix 现有的 MySQL/MariaDB 或 PostgreSQL 数据
 
 ## 一键安装和运行
 
+### Linux 交互式菜单
+
+通过同一个入口按提示输入数字，可选择 systemd 安装、Docker 安装、卸载或退出；安装时选择版本和 Web 端口，卸载时可选择保留或删除配置：
+
+```bash
+curl -fsSL https://github.com/linguyuebai/zbxtable/releases/download/v3.0.7/install-release.sh | sudo bash
+```
+
+卸载需要输入 `DELETE` 确认，只会移除 ZbxTable 服务、容器和文件，不会删除 Zabbix 服务或共享数据库。自动化或无交互部署仍可使用下方命令行参数。
+
 Linux：
 
 ```bash

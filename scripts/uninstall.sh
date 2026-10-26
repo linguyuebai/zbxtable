@@ -5,11 +5,13 @@ INSTALL_ROOT="${ZBXTABLE_INSTALL_ROOT:-/opt/zbxtable}"
 RUNTIME_ROOT="${ZBXTABLE_RUNTIME_ROOT:-/usr/local/zbxtable}"
 PURGE=0
 YES=0
+DOCKER_CONTAINER="${ZBXTABLE_DOCKER_CONTAINER:-zbxtable}"
 
 for arg in "$@"; do
   case "$arg" in
     --install-root=*) INSTALL_ROOT="${arg#*=}" ;;
     --runtime-root=*) RUNTIME_ROOT="${arg#*=}" ;;
+    --docker-container=*) DOCKER_CONTAINER="${arg#*=}" ;;
     --purge) PURGE=1 ;;
     --yes) YES=1 ;;
     -h|--help)
@@ -56,6 +58,11 @@ if command -v systemctl >/dev/null 2>&1; then
   systemctl disable zbxtable.service 2>/dev/null || true
   rm -f /etc/systemd/system/zbxtable.service
   systemctl daemon-reload 2>/dev/null || true
+fi
+
+if command -v docker >/dev/null 2>&1 && docker container inspect "$DOCKER_CONTAINER" >/dev/null 2>&1; then
+  echo "Removing ZbxTable Docker container: $DOCKER_CONTAINER"
+  docker rm -f "$DOCKER_CONTAINER" >/dev/null
 fi
 
 CONFIG_BACKUP=""
