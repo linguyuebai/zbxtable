@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
+umask 027
 
 VERSION="latest"
 REPOSITORY="${ZBXTABLE_REPOSITORY:-linguyuebai/zbxtable}"
@@ -13,6 +14,7 @@ NO_START=0
 DOCKER=0
 DOCKER_INSTALL=0
 DOCKER_PORT="${ZBXTABLE_HTTP_PORT:-8088}"
+PORT_SET=0
 ENV_READY=0
 NO_FIREWALL=0
 STEP=0
@@ -21,6 +23,7 @@ if [[ -t 1 ]]; then
 else
   C_GREEN=''; C_CYAN=''; C_YELLOW=''; C_RESET=''
 fi
+fail() { printf '\033[31m[zbxtable] ERROR: %s\033[0m\n' "$*" >&2; exit 1; }
 for arg in "$@"; do
   case "$arg" in
     -h|--help)
@@ -38,7 +41,7 @@ Usage: bash install-release.sh [options]
   --no-start            Install but do not start the systemd service
   --docker              Install and run with Docker instead of systemd
   --docker-install      Install Docker if it is missing (apt-based Linux)
-  --port=PORT           Docker host port (default: 8088)
+  --port=PORT           Web/Docker port (default: 8088)
   --no-firewall         Do not add the web port to an active firewall
 EOF
       exit 0
@@ -55,11 +58,14 @@ EOF
     --no-start) NO_START=1 ;;
     --docker) DOCKER=1 ;;
     --docker-install) DOCKER=1; DOCKER_INSTALL=1 ;;
-    --port=*) DOCKER_PORT="${arg#*=}" ;;
+    --port=*) DOCKER_PORT="${arg#*=}"; PORT_SET=1 ;;
     --no-firewall) NO_FIREWALL=1 ;;
     *) echo "Unknown option: $arg" >&2; exit 2 ;;
   esac
 done
+
+[[ "$(id -u)" -eq 0 ]] || fail 'Run this installer as root (for example: curl ... | sudo bash -s -- ...).'
+[[ "$DOCKER_PORT" =~ ^[0-9]+$ ]] && (( DOCKER_PORT >= 1 && DOCKER_PORT <= 65535 )) || fail "Invalid port: $DOCKER_PORT"
 
 command -v curl >/dev/null 2>&1 || { echo 'Required command not found: curl' >&2; exit 1; }
 TEMP_DIR="$(mktemp -d)"
@@ -69,7 +75,6 @@ trap cleanup EXIT
 log() { printf '%s[zbxtable] %s%s\n' "$C_CYAN" "$*" "$C_RESET"; }
 step() { STEP=$((STEP + 1)); printf '%s[%02d] %s%s\n' "$C_GREEN" "$STEP" "$*" "$C_RESET"; }
 warn() { printf '%s[zbxtable] WARNING: %s%s\n' "$C_YELLOW" "$*" "$C_RESET" >&2; }
-fail() { printf '\033[31m[zbxtable] ERROR: %s\033[0m\n' "$*" >&2; exit 1; }
 
 configure_firewall() {
   local port="$1"
@@ -149,6 +154,14 @@ for required_file in scripts/install.sh scripts/run.sh scripts/uninstall.sh scri
   [[ -f "$INSTALL_ROOT/$required_file" ]] || fail "Release is missing required file: $required_file"
 done
 if [[ -f "$TEMP_DIR/app.conf.saved" ]]; then install -D -m 600 "$TEMP_DIR/app.conf.saved" "$INSTALL_ROOT/config/app.conf"; fi
+if [[ "$PORT_SET" == 1 && "$DOCKER" != 1 ]]; then
+  if grep -q '^httpport=' "$INSTALL_ROOT/config/app.conf"; then
+    sed -i "s/^httpport=.*/httpport=$DOCKER_PORT/" "$INSTALL_ROOT/config/app.conf"
+  else
+    printf '\nhttpport=%s\n' "$DOCKER_PORT" >> "$INSTALL_ROOT/config/app.conf"
+  fi
+  log "Configured Web port: $DOCKER_PORT"
+fi
 if [[ "$DOCKER" == 1 ]]; then
   step 'Installing and starting Docker container'
   docker_args=("--port=$DOCKER_PORT")
@@ -168,6 +181,7 @@ fi
 if [[ "$INSTALL_DEPS" == 1 && "$ENV_READY" != 1 ]]; then step 'Verifying Go and runtime dependencies'; bash "$INSTALL_ROOT/scripts/bootstrap-linux.sh"; fi
 if [[ "$SKIP_FRONTEND" == 1 ]]; then export ZBXTABLE_SKIP_FRONTEND=1; fi
 step 'Building the application and registering the systemd service'
+export ZBXTABLE_RUNTIME_ROOT="$RUNTIME_ROOT"
 bash "$INSTALL_ROOT/scripts/install.sh"
 if [[ "$NO_START" != 1 && -d /run/systemd/system ]] && command -v systemctl >/dev/null 2>&1; then
   systemctl enable zbxtable.service >/dev/null 2>&1 || true

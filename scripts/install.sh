@@ -6,6 +6,7 @@ APP_NAME="zbxtable"
 BUILD_DIR="$APP_DIR/build"
 CONFIG_DIR="$APP_DIR/config"
 CONFIG_FILE="$CONFIG_DIR/app.conf"
+RUNTIME_ROOT="${ZBXTABLE_RUNTIME_ROOT:-/usr/local/zbxtable}"
 
 log() { printf '[zbxtable] %s\n' "$*"; }
 fail() { printf '[zbxtable] ERROR: %s\n' "$*" >&2; exit 1; }
@@ -105,16 +106,17 @@ chmod +x "$BUILD_DIR/$APP_NAME"
 if command -v systemctl >/dev/null 2>&1 && [[ "$(id -u)" -eq 0 ]]; then
   log 'Registering systemd service'
   if ! id zbxtable >/dev/null 2>&1; then
-    useradd --system --home-dir /usr/local/zbxtable --shell /usr/sbin/nologin zbxtable
+    useradd --system --home-dir "$RUNTIME_ROOT" --shell /usr/sbin/nologin zbxtable
   fi
-  install -d -o zbxtable -g zbxtable /usr/local/zbxtable
-  install -m 0755 "$BUILD_DIR/$APP_NAME" /usr/local/zbxtable/$APP_NAME
-  rm -rf /usr/local/zbxtable/config
-  cp -a "$APP_DIR/config" /usr/local/zbxtable/config
-  install -d -o zbxtable -g zbxtable /usr/local/zbxtable/log /usr/local/zbxtable/download /usr/local/zbxtable/upload
-  chown -R zbxtable:zbxtable /usr/local/zbxtable/config
+  install -d -o zbxtable -g zbxtable "$RUNTIME_ROOT"
+  install -m 0755 "$BUILD_DIR/$APP_NAME" "$RUNTIME_ROOT/$APP_NAME"
+  rm -rf "$RUNTIME_ROOT/config"
+  cp -a "$APP_DIR/config" "$RUNTIME_ROOT/config"
+  install -d -o zbxtable -g zbxtable "$RUNTIME_ROOT/log" "$RUNTIME_ROOT/download" "$RUNTIME_ROOT/upload"
+  chown -R zbxtable:zbxtable "$RUNTIME_ROOT/config"
   [[ -f "$APP_DIR/zbxtable.service" ]] || fail "Service template is missing: $APP_DIR/zbxtable.service"
-  install -m 0644 "$APP_DIR/zbxtable.service" /etc/systemd/system/zbxtable.service
+  sed "s|/usr/local/zbxtable|$RUNTIME_ROOT|g" "$APP_DIR/zbxtable.service" > /etc/systemd/system/zbxtable.service
+  chmod 0644 /etc/systemd/system/zbxtable.service
   systemctl daemon-reload
   systemctl enable zbxtable.service
   systemctl cat zbxtable.service >/dev/null || fail 'systemd service registration failed.'
