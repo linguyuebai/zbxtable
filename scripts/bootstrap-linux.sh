@@ -15,12 +15,12 @@ install_packages() {
     apt-get)
       export DEBIAN_FRONTEND=noninteractive
       apt-get update
-      apt-get install -y ca-certificates curl tar gzip coreutils python3 git nodejs npm
+      apt-get install -y ca-certificates curl tar gzip coreutils python3
       ;;
-    dnf) dnf install -y ca-certificates curl tar gzip coreutils python3 git nodejs npm ;;
-    yum) yum install -y ca-certificates curl tar gzip coreutils python3 git nodejs npm ;;
-    zypper) zypper --non-interactive install ca-certificates curl tar gzip coreutils python3 git nodejs npm ;;
-    apk) apk add --no-cache ca-certificates curl tar gzip coreutils python3 git nodejs npm ;;
+    dnf) dnf install -y ca-certificates curl tar gzip coreutils python3 ;;
+    yum) yum install -y ca-certificates curl tar gzip coreutils python3 ;;
+    zypper) zypper --non-interactive install ca-certificates curl tar gzip coreutils python3 ;;
+    apk) apk add --no-cache ca-certificates curl tar gzip coreutils python3 ;;
     *) fail 'Supported package manager not found (apt-get, dnf, yum, zypper or apk).' ;;
   esac
 }
@@ -32,6 +32,16 @@ done
 [[ -n "$manager" ]] || fail 'No supported Linux package manager found.'
 log "Installing base packages with $manager"
 install_packages "$manager"
+
+if [[ "${ZBXTABLE_NEED_FRONTEND_BUILD:-0}" == "1" ]]; then
+  case "$manager" in
+    apt-get) apt-get install -y git nodejs npm ;;
+    dnf) dnf install -y git nodejs npm ;;
+    yum) yum install -y git nodejs npm ;;
+    zypper) zypper --non-interactive install git nodejs npm ;;
+    apk) apk add --no-cache git nodejs npm ;;
+  esac
+fi
 
 go_ok=0
 if command -v go >/dev/null 2>&1; then

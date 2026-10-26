@@ -79,31 +79,45 @@ fi
 
 mkdir -p "$BUILD_DIR" "$APP_DIR/log" "$APP_DIR/download" "$APP_DIR/upload"
 if command -v ss >/dev/null 2>&1 && ss -ltn "sport = :$HTTP_PORT" | grep -q ":$HTTP_PORT"; then
-  fail "HTTP port $HTTP_PORT is already in use; choose another port. Existing Zabbix services are not modified."
+  if command -v systemctl >/dev/null 2>&1 && [[ "$(id -u)" -eq 0 ]] && systemctl is-active --quiet zbxtable.service; then
+    log 'Stopping the existing zbxtable service before reinstalling.'
+    systemctl stop zbxtable.service
+    sleep 1
+  else
+    fail "HTTP port $HTTP_PORT is already in use; choose another port. Existing Zabbix services are not modified."
+  fi
 fi
 
 cd "$APP_DIR"
-if [[ "${ZBXTABLE_SKIP_FRONTEND:-0}" != "1" ]]; then
+if [[ -s "$APP_DIR/api/v1/web/web/index.html" ]]; then
+  log 'Embedded frontend found; skipping frontend build.'
+elif [[ "${ZBXTABLE_SKIP_FRONTEND:-0}" != "1" ]]; then
   bash "$APP_DIR/scripts/prepare-frontend.sh"
+  [[ -s "$APP_DIR/api/v1/web/web/index.html" ]] || fail 'Frontend index.html is missing after preparation.'
 fi
 log 'Downloading Go dependencies'
 go mod download
 log "Building $APP_NAME"
 CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o "$BUILD_DIR/$APP_NAME" ./main.go
 chmod +x "$BUILD_DIR/$APP_NAME"
+[[ -x "$BUILD_DIR/$APP_NAME" ]] || fail "Build output was not created: $BUILD_DIR/$APP_NAME"
 
 if command -v systemctl >/dev/null 2>&1 && [[ "$(id -u)" -eq 0 ]]; then
+  log 'Registering systemd service'
   if ! id zbxtable >/dev/null 2>&1; then
     useradd --system --home-dir /usr/local/zbxtable --shell /usr/sbin/nologin zbxtable
   fi
   install -d -o zbxtable -g zbxtable /usr/local/zbxtable
   install -m 0755 "$BUILD_DIR/$APP_NAME" /usr/local/zbxtable/$APP_NAME
-  cp -R "$APP_DIR/config" /usr/local/zbxtable/
+  rm -rf /usr/local/zbxtable/config
+  cp -a "$APP_DIR/config" /usr/local/zbxtable/config
   install -d -o zbxtable -g zbxtable /usr/local/zbxtable/log /usr/local/zbxtable/download /usr/local/zbxtable/upload
   chown -R zbxtable:zbxtable /usr/local/zbxtable/config
-  cp "$APP_DIR/zbxtable.service" /etc/systemd/system/zbxtable.service
+  [[ -f "$APP_DIR/zbxtable.service" ]] || fail "Service template is missing: $APP_DIR/zbxtable.service"
+  install -m 0644 "$APP_DIR/zbxtable.service" /etc/systemd/system/zbxtable.service
   systemctl daemon-reload
   systemctl enable zbxtable.service
+  systemctl cat zbxtable.service >/dev/null || fail 'systemd service registration failed.'
   log 'Installed systemd service; start it with: systemctl start zbxtable'
 else
   log "systemd not installed; run $APP_DIR/scripts/run.sh to start the application."
