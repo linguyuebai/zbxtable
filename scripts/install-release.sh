@@ -4,7 +4,7 @@ set -Eeuo pipefail
 VERSION="latest"
 REPOSITORY="${ZBXTABLE_REPOSITORY:-linguyuebai/zbxtable}"
 INSTALL_ROOT="${ZBXTABLE_INSTALL_ROOT:-/opt/zbxtable}"
-FORCE=0
+FORCE=1
 SKIP_CHECKSUM=0
 SKIP_FRONTEND=0
 INSTALL_DEPS=0
@@ -18,7 +18,8 @@ Usage: bash install-release.sh [options]
   --repository=ORG/REPO
   --install-root=PATH Default: /opt/zbxtable
   --install-deps       Install missing Linux packages and Go 1.24.0
-  --force               Replace an existing install directory
+  --force               Replace an existing install directory (default)
+  --no-overwrite        Refuse to replace an existing install directory
   --skip-checksum       Skip SHA256 verification (not recommended)
   --skip-frontend       Do not build/download the frontend
   --no-start            Install but do not start the systemd service
@@ -29,6 +30,7 @@ EOF
     --repository=*) REPOSITORY="${arg#*=}" ;;
     --install-root=*) INSTALL_ROOT="${arg#*=}" ;;
     --force) FORCE=1 ;;
+    --no-overwrite) FORCE=0 ;;
     --skip-checksum) SKIP_CHECKSUM=1 ;;
     --skip-frontend) SKIP_FRONTEND=1 ;;
     --install-deps) INSTALL_DEPS=1 ;;
@@ -90,6 +92,10 @@ fi
 
 if [[ -e "$INSTALL_ROOT" && "$FORCE" != 1 ]]; then echo "Install directory exists: $INSTALL_ROOT (use --force)." >&2; exit 1; fi
 log "Installing to $INSTALL_ROOT"
+if command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet zbxtable.service; then
+  log 'Stopping existing zbxtable.service before replacement.'
+  systemctl stop zbxtable.service
+fi
 if [[ -e "$INSTALL_ROOT/config/app.conf" ]]; then cp "$INSTALL_ROOT/config/app.conf" "$TEMP_DIR/app.conf.saved"; fi
 rm -rf "$INSTALL_ROOT"
 mkdir -p "$INSTALL_ROOT"
@@ -107,9 +113,23 @@ bash "$INSTALL_ROOT/scripts/install.sh"
 if [[ "$NO_START" != 1 && -d /run/systemd/system ]] && command -v systemctl >/dev/null 2>&1; then
   systemctl enable zbxtable.service >/dev/null 2>&1 || true
   systemctl start zbxtable.service
-  systemctl --no-pager --full status zbxtable.service || true
+  if ! systemctl is-active --quiet zbxtable.service; then
+    systemctl --no-pager --full status zbxtable.service || true
+    journalctl -u zbxtable.service -n 80 --no-pager || true
+    fail 'zbxtable.service did not start. See the service log above.'
+  fi
+  systemctl --no-pager --full status zbxtable.service
   HTTP_PORT="$(sed -n 's/^httpport=//p' "$INSTALL_ROOT/config/app.conf" | head -n 1)"
   HTTP_PORT="${HTTP_PORT:-8088}"
+  if command -v curl >/dev/null 2>&1; then
+    healthy=0
+    for attempt in $(seq 1 30); do
+      if curl -fsS --max-time 2 "http://127.0.0.1:$HTTP_PORT/" | grep -qi '<html'; then healthy=1; break; fi
+      sleep 1
+    done
+    [[ "$healthy" == 1 ]] || fail "Web interface health check failed: http://127.0.0.1:$HTTP_PORT/"
+    log 'Web interface health check passed.'
+  fi
   log "Installation complete. Open http://127.0.0.1:$HTTP_PORT"
 else
   log "Installation complete. Start with: bash $INSTALL_ROOT/scripts/run.sh"

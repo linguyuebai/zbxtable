@@ -180,7 +180,7 @@ sudo bash install-release.sh --install-root=/opt/zbxtable
 sudo bash install-release.sh --install-deps --install-root=/opt/zbxtable
 ```
 
-`--install-deps` 只支持 apt、dnf、yum、zypper、apk，会先检查系统包管理器；已有 Go 1.24+ 时不会覆盖。没有该参数时脚本只检测环境并在缺少依赖时停止。
+`--install-deps` 只支持 apt、dnf、yum、zypper、apk，会安装最小基础依赖；完整包已内置前端时不会安装 Node.js。已有 Go 1.24+ 时不会覆盖。没有该参数时脚本只检测环境并在缺少依赖时停止。重新执行安装器默认覆盖旧的 ZbxTable 程序、保留 `config/app.conf`，并先停止旧的 `zbxtable.service`；使用 `--no-overwrite` 可禁止覆盖。
 
 安装指定版本：
 
@@ -252,7 +252,7 @@ powershell.exe -ExecutionPolicy Bypass -File .\scripts\run.ps1
 powershell.exe -ExecutionPolicy Bypass -File .\install-release.ps1 -Version v3.0.7 -InstallRoot C:\ProgramData\zbxtable
 ```
 
-目标目录已存在时脚本会停止；传 `--force` / `-Force` 才会替换程序文件，现有 `config/app.conf` 会保留。务必先备份配置和数据库。Linux root 安装会创建/启用 `zbxtable` systemd 服务，但不会自动停止 Zabbix；检查端口冲突后可用 `systemctl start zbxtable` 启动。Windows 安装完成后运行 `scripts\run.ps1`。
+Linux Release 安装器默认覆盖旧的 ZbxTable 程序，替换前会停止并重新启动 `zbxtable.service`，现有 `config/app.conf` 会保留；使用 `--no-overwrite` 可改为发现目录存在就停止。务必先备份配置和数据库。安装器不会停止或修改 Zabbix 服务。Windows 安装完成后运行 `scripts\run.ps1`。
 
 ### 一键卸载
 
