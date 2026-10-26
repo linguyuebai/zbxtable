@@ -115,11 +115,11 @@ func Crt(Filedata []FileSystemDataALL, host, itemtype string, start, end int64) 
 		for kk, vv := range Filedata[k].FileSystemDataADD {
 			xlsx.SetCellValue("Sheet1", "A"+strconv.Itoa(kk+9+(lea*k)), vv.Clock)
 			floatValueAvg, _ := strconv.ParseFloat(vv.ValueAvg, 64)
-			xlsx.SetCellValue("Sheet1", "B"+strconv.Itoa(kk+9+(lea*k)), Round((floatValueAvg/vfun1/vfun2), 3))
+			xlsx.SetCellValue("Sheet1", "B"+strconv.Itoa(kk+9+(lea*k)), Round((floatValueAvg/vfun1/vfun2), 2))
 			floatValueMax, _ := strconv.ParseFloat(vv.ValueMax, 64)
-			xlsx.SetCellValue("Sheet1", "C"+strconv.Itoa(kk+9+(lea*k)), Round((floatValueMax/vfun1/vfun2), 3))
+			xlsx.SetCellValue("Sheet1", "C"+strconv.Itoa(kk+9+(lea*k)), Round((floatValueMax/vfun1/vfun2), 2))
 			floatValueMin, _ := strconv.ParseFloat(vv.ValueAvg, 64)
-			xlsx.SetCellValue("Sheet1", "D"+strconv.Itoa(kk+9+(lea*k)), Round((floatValueMin/vfun1/vfun2), 3))
+			xlsx.SetCellValue("Sheet1", "D"+strconv.Itoa(kk+9+(lea*k)), Round((floatValueMin/vfun1/vfun2), 2))
 		}
 	}
 

@@ -82,14 +82,31 @@ func CalcHistoryStats(historyData []History) HistoryStats {
 	return stats
 }
 
-// formatStatValue 格式化统计数值，保留两位小数并去除多余的零
+// formatStatValue 格式化统计数值，固定保留两位小数。
 func formatStatValue(v float64) string {
-	s := strconv.FormatFloat(v, 'f', 2, 64)
-	if strings.Contains(s, ".") {
-		s = strings.TrimRight(s, "0")
-		s = strings.TrimRight(s, ".")
+	return strconv.FormatFloat(v, 'f', 2, 64)
+}
+
+// hostReportCycle returns the effective cycle for a host report.
+func hostReportCycle(cycle string) string {
+	for _, value := range strings.Split(strings.ToLower(cycle), ",") {
+		switch strings.TrimSpace(value) {
+		case "month":
+			return "month"
+		case "week":
+			return "week"
+		case "day":
+			return "day"
+		case "realtime":
+			return "realtime"
+		}
 	}
-	return s
+	return "day"
+}
+
+func hostReportSummaryCycle(cycle string) bool {
+	cycle = hostReportCycle(cycle)
+	return cycle == "week" || cycle == "month"
 }
 
 func buildHostReportSheetName(hostName, itemName string, existingSheetNames []string) string {
@@ -162,14 +179,8 @@ func runTaskHostReport(m Report, task *TaskLog) error {
 			Status:    Running,
 			Result:    buildTaskLogResult(Running, 0, "等待执行"),
 		}
-		// 根据Cycle确定任务周期类型：day 或 week
-		if strings.Contains(m.Cycle, "week") {
-			task.Cycle = "week"
-		} else if strings.Contains(m.Cycle, "day") {
-			task.Cycle = "day"
-		} else {
-			task.Cycle = m.Cycle
-		}
+		// 根据 Cycle 确定任务周期类型。
+		task.Cycle = hostReportCycle(m.Cycle)
 		if _, err := task.Create(); err != nil {
 			return err
 		}
@@ -216,15 +227,23 @@ func runTaskHostReport(m Report, task *TaskLog) error {
 		end = tend.Unix()
 		StrStart = tstart.Format("2006-01-02 15:04:05")
 		StrEnd = tend.Format("2006-01-02 15:04:05")
-	} else if strings.Contains(m.Cycle, "day") {
+	} else if hostReportCycle(m.Cycle) == "day" {
 		tstart = Tend.Add(-24 * time.Hour)
 		tend = Tend
 		start = tstart.Unix()
 		end = tend.Unix()
 		StrStart = tstart.Format("2006-01-02 15:04:05")
 		StrEnd = tend.Format("2006-01-02 15:04:05")
-	} else if strings.Contains(m.Cycle, "week") {
-		tstart = Tend.Add(-120 * time.Hour)
+	} else if hostReportCycle(m.Cycle) == "week" {
+		tstart = Tend.AddDate(0, 0, -7)
+		tend = Tend
+		start = tstart.Unix()
+		end = tend.Unix()
+		StrStart = tstart.Format("2006-01-02 15:04:05")
+		StrEnd = tend.Format("2006-01-02 15:04:05")
+	} else if hostReportCycle(m.Cycle) == "month" {
+		// 月报取最近一个月，汇总结果只保留每台设备/指标的平均值。
+		tstart = Tend.AddDate(0, -1, 0)
 		tend = Tend
 		start = tstart.Unix()
 		end = tend.Unix()
@@ -318,20 +337,29 @@ func runTaskHostReport(m Report, task *TaskLog) error {
 				InstanceName: inst.Name, // 添加实例名称
 			})
 
-			// 准备图表数据
+			// 准备图表数据。周报/月报不保留每日明细，只生成一个平均值点。
 			var datelist []string
 			var vallist []opts.LineData
-			for _, vv := range historyData {
-				tclock, _ := strconv.ParseInt(vv.Clock, 10, 64)
-				date := time.Unix(tclock, 0)
-				datelist = append(datelist, date.Format("2006-01-02 15:04:05"))
-				floaval, _ := strconv.ParseFloat(vv.Value, 64)
-				vallist = append(vallist, opts.LineData{Value: floaval})
+			stats := CalcHistoryStats(historyData)
+			summaryOnly := hostReportSummaryCycle(m.Cycle)
+			if summaryOnly {
+				if stats.HasData() {
+					datelist = []string{"周期平均值"}
+					avgValue, _ := strconv.ParseFloat(formatStatValue(stats.Avg), 64)
+					vallist = []opts.LineData{{Value: avgValue}}
+				}
+			} else {
+				for _, vv := range historyData {
+					tclock, _ := strconv.ParseInt(vv.Clock, 10, 64)
+					date := time.Unix(tclock, 0)
+					datelist = append(datelist, date.Format("2006-01-02 15:04:05"))
+					floaval, _ := strconv.ParseFloat(vv.Value, 64)
+					floaval, _ = strconv.ParseFloat(formatStatValue(floaval), 64)
+					vallist = append(vallist, opts.LineData{Value: floaval})
+				}
 			}
 
 			// 根据时间范围内的历史数据计算最大、最小、平均值
-			stats := CalcHistoryStats(historyData)
-
 			chartData := ChartData{
 				Host:         hostInfo.Name,
 				IP:           hostInfo.Interfaces,
@@ -348,6 +376,7 @@ func runTaskHostReport(m Report, task *TaskLog) error {
 				Min:          stats.Min,
 				Avg:          stats.Avg,
 				HasStats:     stats.HasData(),
+				SummaryOnly:  summaryOnly,
 			}
 			ChartList = append(ChartList, chartData)
 			processedItemCount++
@@ -402,15 +431,8 @@ func runTaskHostReport(m Report, task *TaskLog) error {
 
 	// 打包文件
 	dirdata := Tend.Format("2006-01-02_15_04_05")
-	// 根据Cycle确定文件名后缀：day、week 或 realtime
-	cycleType := "day" // 默认使用day
-	if strings.Contains(m.Cycle, "week") {
-		cycleType = "week"
-	} else if strings.Contains(m.Cycle, "day") {
-		cycleType = "day"
-	} else if strings.Contains(m.Cycle, "realtime") {
-		cycleType = "realtime"
-	}
+	// 根据 Cycle 确定文件名后缀。
+	cycleType := hostReportCycle(m.Cycle)
 	// dirname 应该和 zipfilename 保持一致（都包含 _host_）
 	dirname := m.Name + "_host_" + cycleType + "_" + dirdata + "/"
 	Subject := "[主机报表]" + "[" + m.Name + "]" + "[" + time.Now().Format("2006-01-02") + "]"
@@ -478,8 +500,11 @@ func buildChartSubtitle(data ChartData) string {
 	subtitle := data.Name + "\n" + data.Start + "--" + data.End
 	if data.HasStats {
 		unit := strings.TrimSpace(data.Units)
-		statLine := fmt.Sprintf("最大: %s   最小: %s   平均: %s",
-			formatStatValue(data.Max), formatStatValue(data.Min), formatStatValue(data.Avg))
+		statLine := fmt.Sprintf("平均: %s", formatStatValue(data.Avg))
+		if !data.SummaryOnly {
+			statLine = fmt.Sprintf("最大: %s   最小: %s   平均: %s",
+				formatStatValue(data.Max), formatStatValue(data.Min), formatStatValue(data.Avg))
+		}
 		if unit != "" {
 			statLine += " " + unit
 		}
@@ -719,15 +744,25 @@ func CreateHostReportPDF(m Report, data []ChartData, start, end string) (string,
 		}
 		pdf.Cell(nil, titleText)
 
-		// 在标题下方添加统计信息（最大/最小/平均）
+		// 在标题下方添加统计信息。周报/月报只显示周期平均值。
 		if chartData.HasStats {
 			pdf.SetX(10)
 			pdf.SetY(yPos + 14)
-			statText := fmt.Sprintf("最大: %s | 最小: %s | 平均: %s %s",
-				formatStatValue(chartData.Max), formatStatValue(chartData.Min),
-				formatStatValue(chartData.Avg), strings.TrimSpace(chartData.Units))
+			statText := fmt.Sprintf("平均: %s %s", formatStatValue(chartData.Avg), strings.TrimSpace(chartData.Units))
+			if !chartData.SummaryOnly {
+				statText = fmt.Sprintf("最大: %s | 最小: %s | 平均: %s %s",
+					formatStatValue(chartData.Max), formatStatValue(chartData.Min),
+					formatStatValue(chartData.Avg), strings.TrimSpace(chartData.Units))
+			}
 			pdf.Cell(nil, strings.TrimSpace(statText))
 			yPos += 14
+		}
+		if chartData.SummaryOnly {
+			pdf.SetX(10)
+			pdf.SetY(yPos + 20)
+			pdf.Cell(nil, "周报/月报不显示日明细，仅显示周期平均值。")
+			yPos += 50
+			continue
 		}
 
 		// 获取图表图片
@@ -816,10 +851,11 @@ func CreateHostReportPDF(m Report, data []ChartData, start, end string) (string,
 // CreateHostMailTable 创建主机报表邮件内容
 func CreateHostMailTable(m Report, data []ChartData, start, end string) ([]byte, error) {
 	type MailData struct {
-		ReportName string
-		Start      string
-		End        string
-		TableInfo  []struct {
+		ReportName  string
+		Start       string
+		End         string
+		SummaryOnly bool
+		TableInfo   []struct {
 			InstanceName string
 			Host         string
 			IP           string
@@ -832,17 +868,20 @@ func CreateHostMailTable(m Report, data []ChartData, start, end string) ([]byte,
 	}
 
 	mailData := MailData{
-		ReportName: m.Name,
-		Start:      start,
-		End:        end,
+		ReportName:  m.Name,
+		Start:       start,
+		End:         end,
+		SummaryOnly: len(data) > 0 && data[0].SummaryOnly,
 	}
 
 	for _, v := range data {
 		maxStr, minStr, avgStr := "--", "--", "--"
 		if v.HasStats {
-			maxStr = formatStatValue(v.Max)
-			minStr = formatStatValue(v.Min)
 			avgStr = formatStatValue(v.Avg)
+			if !v.SummaryOnly {
+				maxStr = formatStatValue(v.Max)
+				minStr = formatStatValue(v.Min)
+			}
 		}
 		mailData.TableInfo = append(mailData.TableInfo, struct {
 			InstanceName string
@@ -882,6 +921,7 @@ func CreateHostMailTable(m Report, data []ChartData, start, end string) ([]byte,
 // CreateMultiSheetHostReportXlsx 创建包含多个sheet的主机报表Excel文件
 func CreateMultiSheetHostReportXlsx(itemsData []ItemData, reportName, cycle, start, end string) (string, error) {
 	xlsx := excelize.NewFile()
+	summaryOnly := hostReportSummaryCycle(cycle)
 
 	// 获取默认Sheet1的名称
 	defaultSheetName := xlsx.GetSheetName(0)
@@ -942,12 +982,17 @@ func CreateMultiSheetHostReportXlsx(itemsData []ItemData, reportName, cycle, sta
 			minStr = formatStatValue(stats.Min)
 			avgStr = formatStatValue(stats.Avg)
 		}
-		xlsx.SetCellValue(sheetName, "A8", "最大值"+unitSuffix)
-		xlsx.SetCellValue(sheetName, "B8", maxStr)
-		xlsx.SetCellValue(sheetName, "A9", "最小值"+unitSuffix)
-		xlsx.SetCellValue(sheetName, "B9", minStr)
-		xlsx.SetCellValue(sheetName, "A10", "平均值"+unitSuffix)
-		xlsx.SetCellValue(sheetName, "B10", avgStr)
+		if summaryOnly {
+			xlsx.SetCellValue(sheetName, "A8", "周期平均值"+unitSuffix)
+			xlsx.SetCellValue(sheetName, "B8", avgStr)
+		} else {
+			xlsx.SetCellValue(sheetName, "A8", "最大值"+unitSuffix)
+			xlsx.SetCellValue(sheetName, "B8", maxStr)
+			xlsx.SetCellValue(sheetName, "A9", "最小值"+unitSuffix)
+			xlsx.SetCellValue(sheetName, "B9", minStr)
+			xlsx.SetCellValue(sheetName, "A10", "平均值"+unitSuffix)
+			xlsx.SetCellValue(sheetName, "B10", avgStr)
+		}
 
 		// 数据表头与数据起始行（统计信息后空一行）
 		const dataHeaderRow = 12
@@ -960,6 +1005,9 @@ func CreateMultiSheetHostReportXlsx(itemsData []ItemData, reportName, cycle, sta
 		}
 
 		lea := len(itemData.HistoryData)
+		if summaryOnly {
+			lea = 1
+		}
 		// 设置单元格对齐方式
 		if lea > 0 {
 			lastRow := strconv.Itoa(dataStartRow + lea - 1)
@@ -968,18 +1016,34 @@ func CreateMultiSheetHostReportXlsx(itemsData []ItemData, reportName, cycle, sta
 		}
 
 		// 写入数据表头
-		xlsx.SetCellValue(sheetName, "A"+strconv.Itoa(dataHeaderRow), "时间")
-		xlsx.SetCellValue(sheetName, "B"+strconv.Itoa(dataHeaderRow), "数值("+itemInfo.Units+")")
+		if summaryOnly {
+			xlsx.SetCellValue(sheetName, "A"+strconv.Itoa(dataHeaderRow), "周期")
+			xlsx.SetCellValue(sheetName, "B"+strconv.Itoa(dataHeaderRow), "平均值("+itemInfo.Units+")")
+		} else {
+			xlsx.SetCellValue(sheetName, "A"+strconv.Itoa(dataHeaderRow), "时间")
+			xlsx.SetCellValue(sheetName, "B"+strconv.Itoa(dataHeaderRow), "数值("+itemInfo.Units+")")
+		}
 
-		// 写入历史数据
-		for k, v := range itemData.HistoryData {
-			loc, _ := time.LoadLocation("Asia/Shanghai")
-			timeint64, _ := strconv.ParseInt(v.Clock, 10, 64)
-			TimeUnix := time.Unix(timeint64, 0).In(loc)
-			StrTime := TimeUnix.Format("2006-01-02 15:04:05")
-			rowStr := strconv.Itoa(k + dataStartRow)
-			xlsx.SetCellValue(sheetName, "A"+rowStr, StrTime)
-			xlsx.SetCellValue(sheetName, "B"+rowStr, v.Value)
+		if summaryOnly {
+			rowStr := strconv.Itoa(dataStartRow)
+			xlsx.SetCellValue(sheetName, "A"+rowStr, "周期平均值")
+			xlsx.SetCellValue(sheetName, "B"+rowStr, avgStr)
+		} else {
+			// 写入历史数据，日报同样统一保留两位小数。
+			for k, v := range itemData.HistoryData {
+				loc, _ := time.LoadLocation("Asia/Shanghai")
+				timeint64, _ := strconv.ParseInt(v.Clock, 10, 64)
+				TimeUnix := time.Unix(timeint64, 0).In(loc)
+				StrTime := TimeUnix.Format("2006-01-02 15:04:05")
+				rowStr := strconv.Itoa(k + dataStartRow)
+				xlsx.SetCellValue(sheetName, "A"+rowStr, StrTime)
+				value, err := strconv.ParseFloat(strings.TrimSpace(v.Value), 64)
+				if err == nil {
+					xlsx.SetCellValue(sheetName, "B"+rowStr, formatStatValue(value))
+				} else {
+					xlsx.SetCellValue(sheetName, "B"+rowStr, v.Value)
+				}
+			}
 		}
 
 		// 如果是第一个sheet，设置为活动sheet
@@ -1023,6 +1087,16 @@ var htmlHostReport = `<div>
                     <div class="gen-item">
                         <table border="1" style="width: 100%; border-collapse: collapse;">
                             <caption style="font-weight: bold; padding: 10px;">主机监控指标报表</caption>
+                            {{if .SummaryOnly}}
+                            <tr>
+                                <th>实例名称</th>
+                                <th>主机名称</th>
+                                <th>IP地址</th>
+                                <th>指标名称</th>
+                                <th>单位</th>
+                                <th>周期平均值</th>
+                            </tr>
+                            {{else}}
                             <tr>
                                 <th>实例名称</th>
                                 <th>主机名称</th>
@@ -1033,6 +1107,7 @@ var htmlHostReport = `<div>
                                 <th>最小值</th>
                                 <th>平均值</th>
                             </tr>
+                            {{end}}
                             {{range .TableInfo}}
                             <tr>
                                 <td>{{.InstanceName}}</td>
@@ -1040,9 +1115,13 @@ var htmlHostReport = `<div>
                                 <td>{{.IP}}</td>
                                 <td>{{.ItemName}}</td>
                                 <td>{{.Units}}</td>
+                                {{if $.SummaryOnly}}
+                                <td>{{.Avg}}</td>
+                                {{else}}
                                 <td>{{.Max}}</td>
                                 <td>{{.Min}}</td>
                                 <td>{{.Avg}}</td>
+                                {{end}}
                             </tr>
                             {{end}}
                         </table>

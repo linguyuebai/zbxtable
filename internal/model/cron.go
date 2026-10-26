@@ -56,6 +56,22 @@ func getScheduledTaskDefinitions() []scheduledTaskDefinition {
 			Run:            CreateWeekReport,
 		},
 		{
+			Name:           "设备巡检",
+			EnabledKey:     "inspection_enabled",
+			CronKey:        "inspection_cron",
+			DefaultEnabled: "1",
+			DefaultCron:    "0 */10 * * * *",
+			Run:            RunScheduledInspections,
+		},
+		{
+			Name:           "月报生成",
+			EnabledKey:     "month_report_enabled",
+			CronKey:        "month_report_cron",
+			DefaultEnabled: "1",
+			DefaultCron:    "0 55 23 1 * *",
+			Run:            CreateMonthReport,
+		},
+		{
 			Name:           "主机分类同步",
 			EnabledKey:     "sync_inventory",
 			CronKey:        "sync_inventory_cron",
@@ -313,6 +329,27 @@ func CreateWeekReport() error {
 					}
 				}
 			}
+		}
+	}
+	return nil
+}
+
+// CreateMonthReport 生成月报。主机月报按每个设备/指标输出周期平均值。
+func CreateMonthReport() error {
+	_, list, err := GetALlReport()
+	if err != nil {
+		return err
+	}
+	for _, report := range list {
+		if report.Status != "1" || (report.ReportMode != "" && report.ReportMode != "scheduled") || !strings.Contains(report.Cycle, "month") {
+			continue
+		}
+		if report.ReportType != "host" || len(report.HostIds) == 0 || len(report.ItemIds) == 0 {
+			logger.Log.Warnf("报表[%d]的月报暂只支持主机报表，已跳过", report.ID)
+			continue
+		}
+		if err := TaskHostReport(report); err != nil {
+			logger.Log.Error(err)
 		}
 	}
 	return nil

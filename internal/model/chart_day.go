@@ -32,6 +32,7 @@ type ChartData struct {
 	Min           float64         `json:"min"`           // 时间范围内最小值
 	Avg           float64         `json:"avg"`           // 时间范围内平均值
 	HasStats      bool            `json:"has_stats"`     // 是否存在有效的统计数据
+	SummaryOnly   bool            `json:"summary_only"`  // 周报/月报只展示周期平均值
 }
 
 func TaskDayReport(m Report) error {

@@ -258,3 +258,16 @@ zbxtable/
 
 **提示**：建议将本页面加入书签，方便随时查阅！
 
+## 本次新增文档
+
+- [Zabbix 巡检与 Windows 日志对接指南](./Zabbix-巡检与Windows日志对接指南.md)：共库隔离、巡检策略、日志事件和邮件告警。
+- [GitHub 上传与发布指南](./GitHub上传与发布指南.md)：检查、提交、推送、压缩包和 Release 流程。
+- [3.0.7 完整部署手册](./3.0.7-完整部署手册.md)：一键部署、压缩包上传、前后端分别部署、数据库共用、巡检、日志告警、升级、回滚和卸载。
+
+脚本目录还提供 `prepare-frontend`、`package-release`、Linux/Windows 安装和运行入口。运行时配置请使用 `../config/app.conf.example` 复制生成，密码不要提交。
+
+## 发布和安装
+
+- [GitHub 上传、打包与一键安装](./GitHub上传与发布指南.md)：自动检查、ZIP/TAR.GZ 打包、SHA256 校验、Release 上传与 Linux/Windows 安装。
+- 发布包同时提供 `scripts/uninstall.sh`、`scripts/uninstall.ps1` 和 `scripts/uninstall.bat`，支持保留配置卸载或 `--purge` 彻底删除 ZbxTable 文件。
+

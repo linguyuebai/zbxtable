@@ -5,9 +5,29 @@
 [![Build and Test](https://github.com/canghai908/zbxtable/actions/workflows/build.yml/badge.svg)](https://github.com/canghai908/zbxtable/actions/workflows/build.yml)
 [![Release](https://github.com/canghai908/zbxtable/actions/workflows/release.yml/badge.svg)](https://github.com/canghai908/zbxtable/actions/workflows/release.yml)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-[![Go Version](https://img.shields.io/badge/Go-%3E%3D%201.23-blue)](https://golang.org/)
+[![Go Version](https://img.shields.io/badge/Go-%3E%3D%201.24-blue)](https://golang.org/)
 
 ZbxTable 是一个使用 Go 语言开发的 Zabbix 智能运维平台，提供强大的监控数据展示、告警管理和 AI 智能分析功能。
+
+## 与 Zabbix 共用数据库
+
+ZbxTable 可以直接使用 Zabbix 现有的 MySQL/MariaDB 或 PostgreSQL 数据库，不需要新建数据库。安装时将 `dbname` 填写为 Zabbix 数据库名，并使用具备建表和读写权限的账号即可。ZbxTable 自有表统一使用 `zbxtable_` 前缀，例如 `zbxtable_inspection_policy` 和 `zbxtable_inspection_result`，不会修改 Zabbix 的 `hosts`、`items`、`history` 等原生表；巡检指标通过已配置的 Zabbix API 读取。
+
+## 一键安装和运行
+
+Linux：
+
+```bash
+cd zbxtable
+ZBXTABLE_DB_NAME=zabbix ZBXTABLE_DB_USER=zabbix ZBXTABLE_DB_PASS='数据库密码' bash scripts/install.sh
+bash scripts/run.sh
+```
+
+Windows：双击 `scripts\\install.bat` 完成编译和配置，再双击 `scripts\\run.bat` 启动；也可以在 PowerShell 中执行 `scripts\\install.ps1` 和 `scripts\\run.ps1`。脚本默认连接 `127.0.0.1:3306/zabbix`，已有 `config/app.conf` 时不会覆盖配置。
+
+## 上传 GitHub 和生成压缩包
+
+代码归类、敏感文件排除、GitHub 推送、Release 和校验步骤见 [GitHub 上传与发布指南](docs/GitHub上传与发布指南.md)。提交前运行 `git diff --check` 和 `git status --short`；Linux 执行 `./scripts/package-release.sh`，Windows 执行 `scripts\\package-release.bat`。压缩包不包含数据库密码、日志、运行数据和本地构建缓存。
 
 ## ✨ 3.0 版本亮点
 
@@ -29,6 +49,23 @@ ZbxTable 是一个使用 Go 语言开发的 Zabbix 智能运维平台，提供�
 - 📈 **报表系统** - 导出指定时间段内的 Zabbix 告警和指标数据到 Excel
 - 🔍 **告警分析** - 分析特定时间段的告警数据，生成告警 Top 10 等统计
 - 📅 **定时任务** - 定时报表生成和自动发送
+- 🧾 **设备巡检** - 检查 IP、名称、内存、CPU、磁盘、时间同步和安全日志，并保存结果导出
+
+### 设备巡检与安全检测
+
+巡检策略支持按 Zabbix 实例、主机或主机组配置监控项和阈值，默认检测 CPU、内存总量/使用率、磁盘使用率/剩余容量、时间偏差。通过 Zabbix 日志监控项统计非常用登录 IP、登录失败和暴力破解，并将异常写入 ZbxTable 告警分发渠道。
+
+主要接口：
+
+- `GET/POST/PUT/DELETE /v1/inspection/policies`：巡检策略管理
+- `POST /v1/inspection/run`：立即执行策略，请求体 `{"id": 1}`
+- `GET /v1/inspection/policies/:id/results`：查询巡检记录
+- `GET /v1/inspection/policies/:id/summary`：返回周期汇总和每台设备平均值，可用 `start`、`end` 限定周/月范围
+- `POST /v1/inspection/export`：导出巡检 Excel；`include_details=false` 时只导出汇总和设备平均值，适合周报/月报
+
+启用策略后后台默认每 10 分钟执行一次，可通过 `inspection_enabled` 和 `inspection_cron` 调整。巡检数据写入 `zbxtable_inspection_policy`、`zbxtable_inspection_result`，与 Zabbix 原生表隔离。
+
+主机报表支持日报、周报、月报；周报和月报按设备/指标只输出周期平均值，报表数值和百分比固定保留两位小数。月报定时任务可通过 `month_report_enabled`、`month_report_cron` 调整。
 
 ### 告警管理
 - 📧 **多渠道通知** - 支持邮件、企业微信、Webhook 等多种通知方式
@@ -57,7 +94,7 @@ ZbxTable 是一个使用 Go 语言开发的 Zabbix 智能运维平台，提供�
 ## 🛠️ 技术栈
 
 ### 后端技术
-- **语言**: Go 1.23+
+- **语言**: Go 1.24+
 - **Web 框架**: Gin
 - **ORM**: GORM
 - **数据库**: MySQL 5.7+ / PostgreSQL 12+
@@ -281,6 +318,10 @@ sudo systemctl status zbxtable
 
 ## 📦 代码仓库
 
+### 巡检、日志与共库部署
+
+巡检支持 CPU、内存、磁盘、时间同步、异常 IP、异常账号、登录失败和暴力破解检测，周报/月报按设备输出平均值。与 Zabbix 共用数据库时，ZbxTable 表使用 `zbxtable_` 前缀并保持数据隔离；安装脚本不会停止或修改 Zabbix 服务。完整的 Windows/Linux 日志采集、中文 Zabbix 配置、邮件告警和故障排查步骤请参阅：[Zabbix 巡检与 Windows 日志对接指南](docs/Zabbix-巡检与Windows日志对接指南.md)。
+
 **ZbxTable**: [https://github.com/canghai908/zbxtable](https://github.com/canghai908/zbxtable)
 
 **ZbxTable-Web**: [https://github.com/canghai908/zbxtable-web](https://github.com/canghai908/zbxtable-web)
@@ -317,3 +358,15 @@ ZbxTable 使用 Apache-2.0 许可证。详见 [LICENSE](LICENSE) 文件。
 ---
 
 **ZbxTable 3.0 - 让 Zabbix 监控更智能、更强大！** 🚀
+
+## 自动打包、发布与安装
+
+在 Windows PowerShell 运行 `scripts\publish-release.ps1 -Version v3.0.7`，或在 Linux 运行 `bash scripts/publish-release.sh`，脚本会检查必需文件并生成源码压缩包和 SHA256 校验文件。需要创建 GitHub Release 并上传时，先运行 `gh auth login`，再运行 `scripts\publish-release.ps1 -Version v3.0.7 -Upload` 或 `ZBXTABLE_VERSION=v3.0.7 bash scripts/publish-release.sh --upload`。上传需要显式指定参数。
+
+发布完成后，`dist/zbxtable-v3.0.7/` 是可直接上传到 Linux 的完整目录，`source.tar.gz` 是推荐的 Linux 压缩包，`source.zip` 用于 Windows。Linux 首次部署可使用 `sudo bash install-release.sh --install-deps --install-root=/opt/zbxtable` 自动准备基础环境；卸载使用 `scripts/uninstall.sh`，彻底删除时增加 `--purge --yes`。
+
+Release 发布后，可通过 `scripts/install-release.sh`（Linux）或 `scripts/install-release.ps1`（Windows）从 GitHub 下载并校验安装。完整命令、系统依赖、数据库共用说明和故障排查见[GitHub 上传、打包与一键安装指南](./docs/GitHub上传与发布指南.md)。
+
+3.0.7 的完整部署、分别部署、升级回滚、巡检、日志告警和卸载步骤见 [3.0.7 完整部署手册](./docs/3.0.7-完整部署手册.md)。
+
+安装后可使用 `scripts/uninstall.sh --purge --yes`（Linux）或 `scripts/uninstall.ps1 -Purge -Yes`（Windows）一键删除 ZbxTable；默认不使用 `--purge` 时会保留 `config/app.conf`。卸载不会停止 Zabbix，也不会删除共用数据库中的 Zabbix 原生数据。

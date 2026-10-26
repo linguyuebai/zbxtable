@@ -1,0 +1,112 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+APP_NAME="zbxtable"
+BUILD_DIR="$APP_DIR/build"
+CONFIG_DIR="$APP_DIR/config"
+CONFIG_FILE="$CONFIG_DIR/app.conf"
+
+log() { printf '[zbxtable] %s\n' "$*"; }
+fail() { printf '[zbxtable] ERROR: %s\n' "$*" >&2; exit 1; }
+
+if [[ "${ZBXTABLE_INSTALL_DEPS:-0}" == "1" ]]; then
+  bash "$APP_DIR/scripts/bootstrap-linux.sh"
+fi
+
+command -v go >/dev/null 2>&1 || fail 'Go 1.24 or newer is required.'
+
+GO_VERSION="$(go version | awk '{print $3}' | sed 's/^go//')"
+GO_MAJOR="${GO_VERSION%%.*}"
+GO_REST="${GO_VERSION#*.}"
+GO_MINOR="${GO_REST%%.*}"
+if [[ "${GO_MAJOR:-0}" -lt 1 || ( "${GO_MAJOR:-0}" -eq 1 && "${GO_MINOR:-0}" -lt 24 ) ]]; then
+  fail "Go $GO_VERSION is too old; Go 1.24 or newer is required."
+fi
+log "Environment check passed: $(uname -s) $(uname -m), Go $GO_VERSION"
+
+check_port() {
+  local host="$1" port="$2" label="$3"
+  if command -v timeout >/dev/null 2>&1 && timeout 3 bash -c "</dev/tcp/$host/$port" >/dev/null 2>&1; then
+    log "$label reachable: $host:$port"
+  else
+    log "WARNING: could not reach $label at $host:$port; installation continues."
+  fi
+}
+
+if [[ -f "$CONFIG_FILE" && "${FORCE_CONFIG:-0}" != "1" ]]; then
+  log "Existing configuration found; keeping $CONFIG_FILE"
+  HTTP_PORT="$(sed -n 's/^httpport=//p' "$CONFIG_FILE" | head -n 1)"
+  HTTP_PORT="${HTTP_PORT:-8088}"
+else
+  DB_TYPE="${ZBXTABLE_DB_TYPE:-mysql}"
+  DB_HOST="${ZBXTABLE_DB_HOST:-127.0.0.1}"
+  DB_PORT="${ZBXTABLE_DB_PORT:-3306}"
+  DB_NAME="${ZBXTABLE_DB_NAME:-zabbix}"
+  DB_USER="${ZBXTABLE_DB_USER:-zabbix}"
+  DB_PASS="${ZBXTABLE_DB_PASS:-}"
+  HTTP_PORT="${ZBXTABLE_HTTP_PORT:-8088}"
+  RUN_MODE="${ZBXTABLE_RUN_MODE:-prod}"
+
+  if [[ -z "$DB_PASS" ]]; then
+    read -r -s -p 'Zabbix database password: ' DB_PASS
+    printf '\n'
+  fi
+  [[ -n "$DB_PASS" ]] || fail 'Database password cannot be empty.'
+
+  check_port "$DB_HOST" "$DB_PORT" 'database'
+  mkdir -p "$CONFIG_DIR"
+  cat > "$CONFIG_FILE" <<EOF
+httpport=$HTTP_PORT
+runmode=$RUN_MODE
+timeout=12
+log_level=3
+log_path=log
+maxlines=1000
+maxsize=0
+maxdays=10
+daily=true
+dbtype=$DB_TYPE
+dbhost=$DB_HOST
+dbuser=$DB_USER
+dbpass=$DB_PASS
+dbname=$DB_NAME
+dbport=$DB_PORT
+EOF
+  chmod 600 "$CONFIG_FILE"
+  log "Wrote shared-database configuration: $DB_TYPE $DB_HOST:$DB_PORT/$DB_NAME"
+fi
+
+mkdir -p "$BUILD_DIR" "$APP_DIR/log" "$APP_DIR/download" "$APP_DIR/upload"
+if command -v ss >/dev/null 2>&1 && ss -ltn "sport = :$HTTP_PORT" | grep -q ":$HTTP_PORT"; then
+  fail "HTTP port $HTTP_PORT is already in use; choose another port. Existing Zabbix services are not modified."
+fi
+
+cd "$APP_DIR"
+if [[ "${ZBXTABLE_SKIP_FRONTEND:-0}" != "1" ]]; then
+  bash "$APP_DIR/scripts/prepare-frontend.sh"
+fi
+log 'Downloading Go dependencies'
+go mod download
+log "Building $APP_NAME"
+CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o "$BUILD_DIR/$APP_NAME" ./main.go
+chmod +x "$BUILD_DIR/$APP_NAME"
+
+if command -v systemctl >/dev/null 2>&1 && [[ "$(id -u)" -eq 0 ]]; then
+  if ! id zbxtable >/dev/null 2>&1; then
+    useradd --system --home-dir /usr/local/zbxtable --shell /usr/sbin/nologin zbxtable
+  fi
+  install -d -o zbxtable -g zbxtable /usr/local/zbxtable
+  install -m 0755 "$BUILD_DIR/$APP_NAME" /usr/local/zbxtable/$APP_NAME
+  cp -R "$APP_DIR/config" /usr/local/zbxtable/
+  install -d -o zbxtable -g zbxtable /usr/local/zbxtable/log /usr/local/zbxtable/download /usr/local/zbxtable/upload
+  chown -R zbxtable:zbxtable /usr/local/zbxtable/config
+  cp "$APP_DIR/zbxtable.service" /etc/systemd/system/zbxtable.service
+  systemctl daemon-reload
+  systemctl enable zbxtable.service
+  log 'Installed systemd service; start it with: systemctl start zbxtable'
+else
+  log "systemd not installed; run $APP_DIR/scripts/run.sh to start the application."
+fi
+
+log "Installation complete. Open http://127.0.0.1:$HTTP_PORT after startup."

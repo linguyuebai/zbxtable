@@ -289,7 +289,7 @@ func runReportNow(v *Report, task *TaskLog) error {
 
 	// 根据周期分别生成报表：
 	// - 流量报表：day -> TaskDayReport，week -> TaskWeekReport
-	// - 主机报表：day/week 都调用 TaskHostReport，但每次只传递当前周期，避免重复逻辑
+	// - 主机报表：day/week/month 都调用 TaskHostReport，每次只传递当前周期
 	for _, vv := range cycle {
 		// day
 		if vv == "day" {
@@ -315,6 +315,23 @@ func runReportNow(v *Report, task *TaskLog) error {
 				vWeek.Cycle = "week"
 				taskErr = TaskHostReportWithTaskLog(vWeek, task)
 			} else {
+				taskErr = TaskWeekReport(*v)
+			}
+			if taskErr != nil {
+				logger.Log.Error(taskErr)
+				return taskErr
+			}
+		}
+
+		// month
+		if vv == "month" {
+			var taskErr error
+			if v.ReportType == "host" {
+				vMonth := *v
+				vMonth.Cycle = "month"
+				taskErr = TaskHostReportWithTaskLog(vMonth, task)
+			} else {
+				// 主机报表支持按设备平均值月报；其他类型沿用已有周报任务。
 				taskErr = TaskWeekReport(*v)
 			}
 			if taskErr != nil {

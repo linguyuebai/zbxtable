@@ -98,6 +98,8 @@ func AutoMigrate() error {
 		&MetricMapping{},
 		&MetricMappingHistory{},
 		&SystemHistory{},
+		&InspectionPolicy{},
+		&InspectionResult{},
 		//&MappingRule{},
 	//&ZabbixInstance{},
 	//&ZabbixInstanceBinding{},

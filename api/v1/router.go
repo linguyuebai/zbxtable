@@ -378,6 +378,20 @@ func InitRouter() *gin.Engine {
 				reportGroup.POST("/status", handler.UpdateReportStatusGin)
 			}
 
+			// 设备巡检与安全日志检测
+			inspectionGroup := api.Group("/inspection")
+			{
+				inspectionGroup.GET("/policies", handler.GetInspectionPolicies)
+				inspectionGroup.GET("/policies/:id", handler.GetInspectionPolicy)
+				inspectionGroup.POST("/policies", handler.CreateInspectionPolicy)
+				inspectionGroup.PUT("/policies/:id", handler.UpdateInspectionPolicy)
+				inspectionGroup.DELETE("/policies/:id", handler.DeleteInspectionPolicy)
+				inspectionGroup.POST("/run", handler.RunInspection)
+				inspectionGroup.GET("/policies/:id/results", handler.GetInspectionResults)
+				inspectionGroup.GET("/policies/:id/summary", handler.GetInspectionSummary)
+				inspectionGroup.POST("/export", handler.ExportInspection)
+			}
+
 			// 任务日志
 			taskLogGroup := api.Group("/task_log")
 			{
