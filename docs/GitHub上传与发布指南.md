@@ -164,7 +164,7 @@ curl -fsSL https://github.com/linguyuebai/zbxtable/releases/download/v3.0.7/inst
 curl -fsSL https://github.com/linguyuebai/zbxtable/releases/download/v3.0.7/install-release.sh | sudo bash -s -- --version=v3.0.7 --install-deps --install-root=/opt/zbxtable --no-start
 ```
 
-脚本会输出环境检查、Release 地址、压缩包名称、SHA256 结果、必需文件检查、安装路径、编译结果和 systemd 状态。数据库密码不会写入 Release；首次安装时由 `scripts/install.sh` 交互读取。
+脚本会输出分阶段进度、环境检查、Release 地址、压缩包名称、SHA256 结果、必需文件检查、安装路径、编译结果、systemd 状态、访问地址、默认账号密码和防火墙处理结果。数据库密码不会写入 Release；首次安装时由 `scripts/install.sh` 交互读取。默认账号为 `admin`，初始密码为 `Zbxtable`，首次登录后必须修改。
 
 Docker 一行安装（自动检查 Docker；缺少 Docker 时安装，支持端口参数）：
 
