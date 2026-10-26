@@ -155,7 +155,7 @@ scripts/uninstall.bat
 Ubuntu、Debian、CentOS 等 Linux：需要 `curl`、`tar`、`sha256sum`、`python3`、Go 1.24+、Git 和 Node.js/npm。下载脚本后执行：
 
 ```bash
-curl -fsSL https://github.com/canghai908/zbxtable/releases/latest/download/install-release.sh -o install-release.sh
+curl -fsSL https://github.com/linguyuebai/zbxtable/releases/latest/download/install-release.sh -o install-release.sh
 chmod +x install-release.sh
 sudo bash install-release.sh --install-root=/opt/zbxtable
 ```
@@ -177,7 +177,7 @@ sudo bash install-release.sh --version=v3.0.7 --install-root=/opt/zbxtable
 Windows Server：需要 PowerShell 5.1+、Go 1.24+、Git、Node.js/npm。以管理员 PowerShell 执行：
 
 ```powershell
-iwr https://github.com/canghai908/zbxtable/releases/latest/download/install-release.ps1 -OutFile install-release.ps1
+iwr https://github.com/linguyuebai/zbxtable/releases/latest/download/install-release.ps1 -OutFile install-release.ps1
 powershell.exe -ExecutionPolicy Bypass -File .\install-release.ps1 -InstallRoot C:\ProgramData\zbxtable
 ```
 
@@ -254,7 +254,7 @@ sudo bash scripts/uninstall.sh --install-root=/opt/zbxtable --yes
 如果安装目录已被误删，也可以直接从 Release 下载卸载脚本：
 
 ```bash
-curl -fsSL https://github.com/canghai908/zbxtable/releases/latest/download/uninstall.sh -o uninstall.sh
+curl -fsSL https://github.com/linguyuebai/zbxtable/releases/latest/download/uninstall.sh -o uninstall.sh
 chmod +x uninstall.sh
 sudo bash uninstall.sh --install-root=/opt/zbxtable --runtime-root=/usr/local/zbxtable --purge --yes
 ```
@@ -279,7 +279,7 @@ powershell.exe -ExecutionPolicy Bypass -File .\scripts\uninstall.ps1 -InstallRoo
 也可以直接下载卸载脚本：
 
 ```powershell
-iwr https://github.com/canghai908/zbxtable/releases/latest/download/uninstall.ps1 -OutFile uninstall.ps1
+iwr https://github.com/linguyuebai/zbxtable/releases/latest/download/uninstall.ps1 -OutFile uninstall.ps1
 powershell.exe -ExecutionPolicy Bypass -File .\uninstall.ps1 -InstallRoot C:\ProgramData\zbxtable
 ```
 

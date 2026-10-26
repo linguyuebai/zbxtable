@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 
 VERSION="latest"
-REPOSITORY="${ZBXTABLE_REPOSITORY:-canghai908/zbxtable}"
+REPOSITORY="${ZBXTABLE_REPOSITORY:-linguyuebai/zbxtable}"
 INSTALL_ROOT="${ZBXTABLE_INSTALL_ROOT:-/opt/zbxtable}"
 FORCE=0
 SKIP_CHECKSUM=0

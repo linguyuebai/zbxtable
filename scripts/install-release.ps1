@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
   [string]$Version = 'latest',
-  [string]$Repository = 'canghai908/zbxtable',
+  [string]$Repository = 'linguyuebai/zbxtable',
   [string]$InstallRoot = '',
   [switch]$Force,
   [switch]$SkipChecksum,
