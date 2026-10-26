@@ -13,6 +13,14 @@ NO_START=0
 DOCKER=0
 DOCKER_INSTALL=0
 DOCKER_PORT="${ZBXTABLE_HTTP_PORT:-8088}"
+ENV_READY=0
+NO_FIREWALL=0
+STEP=0
+if [[ -t 1 ]]; then
+  C_GREEN=$'\033[32m'; C_CYAN=$'\033[36m'; C_YELLOW=$'\033[33m'; C_RESET=$'\033[0m'
+else
+  C_GREEN=''; C_CYAN=''; C_YELLOW=''; C_RESET=''
+fi
 for arg in "$@"; do
   case "$arg" in
     -h|--help)
@@ -31,6 +39,7 @@ Usage: bash install-release.sh [options]
   --docker              Install and run with Docker instead of systemd
   --docker-install      Install Docker if it is missing (apt-based Linux)
   --port=PORT           Docker host port (default: 8088)
+  --no-firewall         Do not add the web port to an active firewall
 EOF
       exit 0
       ;;
@@ -47,6 +56,7 @@ EOF
     --docker) DOCKER=1 ;;
     --docker-install) DOCKER=1; DOCKER_INSTALL=1 ;;
     --port=*) DOCKER_PORT="${arg#*=}" ;;
+    --no-firewall) NO_FIREWALL=1 ;;
     *) echo "Unknown option: $arg" >&2; exit 2 ;;
   esac
 done
@@ -56,18 +66,35 @@ TEMP_DIR="$(mktemp -d)"
 cleanup() { rm -rf "$TEMP_DIR"; }
 trap cleanup EXIT
 
-log() { printf '[zbxtable-release] %s\n' "$*"; }
-fail() { printf '[zbxtable-release] ERROR: %s\n' "$*" >&2; exit 1; }
+log() { printf '%s[zbxtable] %s%s\n' "$C_CYAN" "$*" "$C_RESET"; }
+step() { STEP=$((STEP + 1)); printf '%s[%02d] %s%s\n' "$C_GREEN" "$STEP" "$*" "$C_RESET"; }
+warn() { printf '%s[zbxtable] WARNING: %s%s\n' "$C_YELLOW" "$*" "$C_RESET" >&2; }
+fail() { printf '\033[31m[zbxtable] ERROR: %s\033[0m\n' "$*" >&2; exit 1; }
+
+configure_firewall() {
+  local port="$1"
+  [[ "$NO_FIREWALL" == 1 ]] && { warn 'Firewall update skipped (--no-firewall).'; return; }
+  if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -q '^Status: active'; then
+    ufw allow "$port/tcp" >/dev/null && log "UFW allowed TCP port $port" || warn "Could not update UFW for port $port"
+  elif command -v firewall-cmd >/dev/null 2>&1 && firewall-cmd --state >/dev/null 2>&1; then
+    firewall-cmd --permanent --add-port="$port/tcp" >/dev/null && firewall-cmd --reload >/dev/null && log "firewalld allowed TCP port $port" || warn "Could not update firewalld for port $port"
+  else
+    warn "No active UFW/firewalld detected; add TCP port $port to your firewall if needed."
+  fi
+}
 
 if [[ "$INSTALL_DEPS" == 1 && "$DOCKER" != 1 ]]; then
+  step 'Checking and preparing the Linux environment'
   BOOTSTRAP_URL="https://github.com/$REPOSITORY/releases/latest/download/bootstrap-linux.sh"
   [[ "$VERSION" == latest ]] || BOOTSTRAP_URL="https://github.com/$REPOSITORY/releases/download/$VERSION/bootstrap-linux.sh"
   log "Preparing Linux environment from $BOOTSTRAP_URL"
   curl -fsSL "$BOOTSTRAP_URL" -o "$TEMP_DIR/bootstrap-linux.sh" || fail 'Unable to download bootstrap-linux.sh.'
   chmod +x "$TEMP_DIR/bootstrap-linux.sh"
   bash "$TEMP_DIR/bootstrap-linux.sh"
+  ENV_READY=1
 fi
 
+step 'Checking required commands and release metadata'
 for command in tar sha256sum python3; do command -v "$command" >/dev/null 2>&1 || fail "Required command not found: $command"; done
 if [[ "$VERSION" == latest ]]; then API_URL="https://api.github.com/repos/$REPOSITORY/releases/latest"; else API_URL="https://api.github.com/repos/$REPOSITORY/releases/tags/$VERSION"; fi
 release_json="$TEMP_DIR/release.json"
@@ -91,6 +118,7 @@ for asset in data.get('assets', []):
 PY
 )"
 ARCHIVE="$TEMP_DIR/$ARCHIVE_NAME"
+step "Downloading $ARCHIVE_NAME"
 curl -fL "$BASE_URL" -o "$ARCHIVE"
 [[ -s "$ARCHIVE" ]] || fail 'Downloaded archive is empty.'
 if [[ "$SKIP_CHECKSUM" != 1 ]]; then
@@ -102,6 +130,7 @@ else
   log 'WARNING: SHA256 verification skipped.'
 fi
 
+step 'Preparing the installation directory and preserving configuration'
 if [[ -e "$INSTALL_ROOT" && "$FORCE" != 1 ]]; then echo "Install directory exists: $INSTALL_ROOT (use --force)." >&2; exit 1; fi
 log "Installing to $INSTALL_ROOT"
 if command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet zbxtable.service; then
@@ -121,9 +150,13 @@ for required_file in scripts/install.sh scripts/run.sh scripts/uninstall.sh scri
 done
 if [[ -f "$TEMP_DIR/app.conf.saved" ]]; then install -D -m 600 "$TEMP_DIR/app.conf.saved" "$INSTALL_ROOT/config/app.conf"; fi
 if [[ "$DOCKER" == 1 ]]; then
+  step 'Installing and starting Docker container'
   docker_args=("--port=$DOCKER_PORT")
   [[ "$DOCKER_INSTALL" == 1 ]] && docker_args+=(--install-docker)
   bash "$INSTALL_ROOT/scripts/install-docker.sh" "${docker_args[@]}"
+  configure_firewall "$DOCKER_PORT"
+  printf '\n%sZbxTable Docker installation complete%s\n' "$C_GREEN" "$C_RESET"
+  printf '  Web:      http://%s:%s\n  Container: %s\n  Account:   admin\n  Password:  Zbxtable (first login; change it immediately)\n' "$(hostname -I 2>/dev/null | awk '{print $1}')" "$DOCKER_PORT" "${ZBXTABLE_DOCKER_CONTAINER:-zbxtable}"
   exit 0
 fi
 if [[ "$SKIP_FRONTEND" != 1 && ! -s "$INSTALL_ROOT/api/v1/web/web/index.html" ]]; then
@@ -132,8 +165,9 @@ if [[ "$SKIP_FRONTEND" != 1 && ! -s "$INSTALL_ROOT/api/v1/web/web/index.html" ]]
   bash "$INSTALL_ROOT/scripts/bootstrap-linux.sh"
   unset ZBXTABLE_NEED_FRONTEND_BUILD
 fi
-if [[ "$INSTALL_DEPS" == 1 ]]; then bash "$INSTALL_ROOT/scripts/bootstrap-linux.sh"; fi
+if [[ "$INSTALL_DEPS" == 1 && "$ENV_READY" != 1 ]]; then step 'Verifying Go and runtime dependencies'; bash "$INSTALL_ROOT/scripts/bootstrap-linux.sh"; fi
 if [[ "$SKIP_FRONTEND" == 1 ]]; then export ZBXTABLE_SKIP_FRONTEND=1; fi
+step 'Building the application and registering the systemd service'
 bash "$INSTALL_ROOT/scripts/install.sh"
 if [[ "$NO_START" != 1 && -d /run/systemd/system ]] && command -v systemctl >/dev/null 2>&1; then
   systemctl enable zbxtable.service >/dev/null 2>&1 || true
@@ -155,6 +189,9 @@ if [[ "$NO_START" != 1 && -d /run/systemd/system ]] && command -v systemctl >/de
     [[ "$healthy" == 1 ]] || fail "Web interface health check failed: http://127.0.0.1:$HTTP_PORT/"
     log 'Web interface health check passed.'
   fi
+  configure_firewall "$HTTP_PORT"
+  printf '\n%sZbxTable installation complete%s\n' "$C_GREEN" "$C_RESET"
+  printf '  Web:      http://%s:%s\n  Service:  zbxtable.service (enabled)\n  Account:  admin\n  Password: Zbxtable (first login; change it immediately)\n' "$(hostname -I 2>/dev/null | awk '{print $1}')" "$HTTP_PORT"
   log "Installation complete. Open http://127.0.0.1:$HTTP_PORT"
 else
   log "Installation complete. Start with: bash $INSTALL_ROOT/scripts/run.sh"
