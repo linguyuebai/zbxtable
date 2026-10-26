@@ -118,6 +118,16 @@ if [[ "$#" == 0 || "$INTERACTIVE" == 1 ]]; then
   fi
 fi
 
+if [[ "${ACTION:-}" == uninstall && "$INTERACTIVE" != 1 && "$ASSUME_YES" != 1 ]]; then
+  [[ -r /dev/tty && -w /dev/tty ]] || fail 'Uninstall needs a terminal confirmation. Use --yes to confirm explicitly in automation.'
+  printf '卸载将移除 ZbxTable systemd 服务、Docker 容器和程序文件，不会删除 Zabbix 或共享数据库。' > /dev/tty
+  [[ "$MENU_PURGE" == 1 ]] && printf ' 同时删除 ZbxTable 配置。' > /dev/tty
+  printf '\n输入 DELETE 确认: ' > /dev/tty
+  IFS= read -r CONFIRM_UNINSTALL < /dev/tty || fail 'Could not read uninstall confirmation.'
+  [[ "$CONFIRM_UNINSTALL" == DELETE ]] || { printf '已取消卸载。\n' > /dev/tty; exit 0; }
+  ASSUME_YES=1
+fi
+
 [[ "$(id -u)" -eq 0 ]] || fail 'Run this installer as root (for example: curl ... | sudo bash -s -- ...).'
 [[ "$DOCKER_PORT" =~ ^[0-9]+$ ]] && (( DOCKER_PORT >= 1 && DOCKER_PORT <= 65535 )) || fail "Invalid port: $DOCKER_PORT"
 
