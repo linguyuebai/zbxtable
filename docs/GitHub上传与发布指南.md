@@ -152,6 +152,20 @@ scripts/uninstall.bat
 
 ### 方式一：服务器直接从 Release 安装（推荐）
 
+3.0.7 一行安装命令（自动环境检测、依赖安装、SHA256 校验、文件检查、编译、启动和状态输出）：
+
+```bash
+curl -fsSL https://github.com/linguyuebai/zbxtable/releases/download/v3.0.7/install-release.sh | sudo bash -s -- --version=v3.0.7 --install-deps --install-root=/opt/zbxtable
+```
+
+不启动服务，仅完成安装：
+
+```bash
+curl -fsSL https://github.com/linguyuebai/zbxtable/releases/download/v3.0.7/install-release.sh | sudo bash -s -- --version=v3.0.7 --install-deps --install-root=/opt/zbxtable --no-start
+```
+
+脚本会输出环境检查、Release 地址、压缩包名称、SHA256 结果、必需文件检查、安装路径、编译结果和 systemd 状态。数据库密码不会写入 Release；首次安装时由 `scripts/install.sh` 交互读取。
+
 Ubuntu、Debian、CentOS 等 Linux：需要 `curl`、`tar`、`sha256sum`、`python3`、Go 1.24+、Git 和 Node.js/npm。下载脚本后执行：
 
 ```bash
@@ -241,6 +255,12 @@ powershell.exe -ExecutionPolicy Bypass -File .\install-release.ps1 -Version v3.0
 目标目录已存在时脚本会停止；传 `--force` / `-Force` 才会替换程序文件，现有 `config/app.conf` 会保留。务必先备份配置和数据库。Linux root 安装会创建/启用 `zbxtable` systemd 服务，但不会自动停止 Zabbix；检查端口冲突后可用 `systemctl start zbxtable` 启动。Windows 安装完成后运行 `scripts\run.ps1`。
 
 ### 一键卸载
+
+一行彻底卸载：
+
+```bash
+curl -fsSL https://github.com/linguyuebai/zbxtable/releases/download/v3.0.7/uninstall.sh | sudo bash -s -- --install-root=/opt/zbxtable --runtime-root=/usr/local/zbxtable --purge --yes
+```
 
 卸载脚本只管理名为 `zbxtable` 的服务和 ZbxTable 自身目录，不会停止 Zabbix Server、Zabbix Agent、Zabbix Proxy，也不会删除共用数据库中的 Zabbix 原生表。
 

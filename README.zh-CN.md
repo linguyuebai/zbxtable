@@ -365,6 +365,12 @@ ZbxTable 使用 Apache-2.0 许可证。详见 [LICENSE](LICENSE) 文件。
 
 发布完成后，`dist/zbxtable-v3.0.7/` 是可直接上传到 Linux 的完整目录，`source.tar.gz` 是推荐的 Linux 压缩包，`source.zip` 用于 Windows。Linux 首次部署可使用 `sudo bash install-release.sh --install-deps --install-root=/opt/zbxtable` 自动准备基础环境；卸载使用 `scripts/uninstall.sh`，彻底删除时增加 `--purge --yes`。
 
+3.0.7 Linux 一行安装（环境检测、文件校验、安装、启动和状态输出）：
+
+```bash
+curl -fsSL https://github.com/linguyuebai/zbxtable/releases/download/v3.0.7/install-release.sh | sudo bash -s -- --version=v3.0.7 --install-deps --install-root=/opt/zbxtable
+```
+
 Release 发布后，可通过 `scripts/install-release.sh`（Linux）或 `scripts/install-release.ps1`（Windows）从 GitHub 下载并校验安装。完整命令、系统依赖、数据库共用说明和故障排查见[GitHub 上传、打包与一键安装指南](./docs/GitHub上传与发布指南.md)。
 
 3.0.7 的完整部署、分别部署、升级回滚、巡检、日志告警和卸载步骤见 [3.0.7 完整部署手册](./docs/3.0.7-完整部署手册.md)。
