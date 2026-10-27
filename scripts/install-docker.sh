@@ -146,6 +146,7 @@ while (( attempt <= 30 )); do
     configure_firewall "$PORT"
     log "Installation complete: http://127.0.0.1:$PORT"
     log "Web: http://$(hostname -I 2>/dev/null | awk '{print $1}'):$PORT"
+    log "Refresh: http://$(hostname -I 2>/dev/null | awk '{print $1}'):$PORT/?v=$(date +%s)"
     log 'Account: admin'
     log 'Password: Zbxtable (first login; change it immediately)'
     log "Container: $CONTAINER"

@@ -377,6 +377,7 @@ if [[ "$NO_START" != 1 && -d /run/systemd/system ]] && command -v systemctl >/de
   INSTALL_SUCCEEDED=1
   printf '\n%sZbxTable installation complete%s\n' "$C_GREEN" "$C_RESET"
   printf '  Web:      http://%s:%s\n  Service:  zbxtable.service (enabled)\n  Account:  admin\n  Password: Zbxtable (first login; change it immediately)\n' "$(hostname -I 2>/dev/null | awk '{print $1}')" "$HTTP_PORT"
+  printf '  Refresh:  http://%s:%s/?v=%s\n' "$(hostname -I 2>/dev/null | awk '{print $1}')" "$HTTP_PORT" "$(date +%s)"
   log "Installation complete. Open http://127.0.0.1:$HTTP_PORT"
 else
   INSTALL_SUCCEEDED=1

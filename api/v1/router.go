@@ -79,32 +79,45 @@ func InitRouter() *gin.Engine {
 			c.Data(200, contentType, data)
 		}
 	}
+	serveFrontendDocument := func(c *gin.Context) {
+		data, err := fs.ReadFile(subFS, "index.html")
+		if err != nil {
+			c.String(http.StatusInternalServerError, "Failed to load frontend: %v", err)
+			return
+		}
+		// The document contains the hashed JavaScript/CSS names. Never cache it,
+		// otherwise a browser can keep pointing at the previous release forever.
+		c.Header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+		c.Header("Pragma", "no-cache")
+		c.Header("Expires", "0")
+		c.Data(http.StatusOK, "text/html; charset=utf-8", data)
+	}
 
 	// 根级静态资源
 	r.GET("/favicon.ico", serveFrontendFile("favicon.ico", "image/x-icon"))
 	r.GET("/logo.png", serveFrontendFile("logo.png", "image/png"))
 	r.GET("/vite.svg", serveFrontendFile("vite.svg", "image/svg+xml"))
+	r.GET("/service-worker.js", func(c *gin.Context) {
+		data, err := fs.ReadFile(subFS, "service-worker.js")
+		if err != nil {
+			c.Status(http.StatusNotFound)
+			return
+		}
+		c.Header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+		c.Header("Pragma", "no-cache")
+		c.Data(http.StatusOK, "application/javascript; charset=utf-8", data)
+	})
 
 	// 根路径返回 index.html
 	r.GET("/", func(c *gin.Context) {
-		data, err := fs.ReadFile(subFS, "index.html")
-		if err != nil {
-			c.String(500, "Failed to load frontend: %v", err)
-			return
-		}
-		c.Data(200, "text/html; charset=utf-8", data)
+		serveFrontendDocument(c)
 	})
 	// The installer is a client-side route in the embedded application.  It
 	// must be registered explicitly because /install/status and the other
 	// installer endpoints are API routes, while a browser GET /install needs
 	// the SPA document.
 	r.GET("/install", func(c *gin.Context) {
-		data, err := fs.ReadFile(subFS, "index.html")
-		if err != nil {
-			c.String(http.StatusInternalServerError, "Failed to load frontend: %v", err)
-			return
-		}
-		c.Data(http.StatusOK, "text/html; charset=utf-8", data)
+		serveFrontendDocument(c)
 	})
 
 	// 公开的拓扑预览接口（无需认证）

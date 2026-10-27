@@ -164,4 +164,4 @@ else
   log "systemd not installed; run $APP_DIR/scripts/run.sh to start the application."
 fi
 
-log "Installation complete. Open http://127.0.0.1:$HTTP_PORT after startup."
+log "Installation complete. Open http://127.0.0.1:$HTTP_PORT/?v=$(date +%s) to load the latest frontend."

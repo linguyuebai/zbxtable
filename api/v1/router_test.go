@@ -15,6 +15,9 @@ func TestEmbeddedFrontendJavaScriptIsServed(t *testing.T) {
 	if root.Code != 200 {
 		t.Fatalf("GET / status = %d, want 200", root.Code)
 	}
+	if root.Header().Get("Cache-Control") == "" || !strings.Contains(root.Header().Get("Cache-Control"), "no-store") {
+		t.Fatalf("GET / Cache-Control = %q, want no-store", root.Header().Get("Cache-Control"))
+	}
 
 	script := regexp.MustCompile(`src=["']([^"']+\.js)["']`).FindStringSubmatch(root.Body.String())
 	if len(script) < 2 {
@@ -40,6 +43,18 @@ func TestEmbeddedFrontendJavaScriptIsServed(t *testing.T) {
 	}
 	if strings.Contains(strings.ToLower(missingAsset.Body.String()), "<html") {
 		t.Fatal("missing JavaScript asset incorrectly returned the SPA document")
+	}
+}
+
+func TestServiceWorkerIsServedWithoutBrowserCache(t *testing.T) {
+	router := InitRouter()
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, httptest.NewRequest("GET", "/service-worker.js", nil))
+	if response.Code != 200 {
+		t.Fatalf("GET /service-worker.js status = %d, want 200", response.Code)
+	}
+	if response.Header().Get("Cache-Control") == "" || !strings.Contains(response.Header().Get("Cache-Control"), "no-store") {
+		t.Fatalf("service worker Cache-Control = %q, want no-store", response.Header().Get("Cache-Control"))
 	}
 }
 
