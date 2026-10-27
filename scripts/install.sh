@@ -83,7 +83,37 @@ EOF
   log "Wrote shared-database configuration: $DB_TYPE $DB_HOST:$DB_PORT/$DB_NAME"
 fi
 
+# Recreate a missing runtime configuration from the release template, and
+# normalize access even when an older install left permissive file modes.
+if [[ ! -f "$CONFIG_FILE" ]]; then
+  [[ -f "$APP_DIR/config/app.conf.example" ]] || fail "Configuration template is missing: $APP_DIR/config/app.conf.example"
+  install -D -m 0600 "$APP_DIR/config/app.conf.example" "$CONFIG_FILE"
+  log "Restored missing configuration from $APP_DIR/config/app.conf.example"
+fi
+# Backfill newly introduced settings without replacing site-specific values.
+while IFS='=' read -r key value; do
+  [[ -n "$key" && "$key" != \#* ]] || continue
+  if ! grep -q "^[[:space:]]*$key[[:space:]]*=" "$CONFIG_FILE"; then
+    printf '\n%s=%s\n' "$key" "$value" >> "$CONFIG_FILE"
+    log "Added missing configuration setting: $key"
+  fi
+done < "$APP_DIR/config/app.conf.example"
+if grep -q '^[[:space:]]*dbpass[[:space:]]*=change-me[[:space:]]*$' "$CONFIG_FILE"; then
+  DB_PASS="${ZBXTABLE_DB_PASS:-}"
+  if [[ -z "$DB_PASS" ]]; then
+    [[ -r /dev/tty && -w /dev/tty ]] || fail 'Database password is not configured; set ZBXTABLE_DB_PASS or run from an interactive terminal.'
+    read -r -s -p 'Zabbix database password: ' DB_PASS < /dev/tty
+    printf '\n'
+  fi
+  [[ -n "$DB_PASS" ]] || fail 'Database password cannot be empty.'
+  escaped_db_pass="${DB_PASS//\\/\\\\}"
+  escaped_db_pass="${escaped_db_pass//|/\\|}"
+  sed -i "s|^[[:space:]]*dbpass[[:space:]]*=.*$|dbpass=$escaped_db_pass|" "$CONFIG_FILE"
+fi
+chmod 0600 "$CONFIG_FILE"
 mkdir -p "$BUILD_DIR" "$APP_DIR/log" "$APP_DIR/download" "$APP_DIR/upload"
+chmod 0750 "$CONFIG_DIR" "$APP_DIR/log" "$APP_DIR/download" "$APP_DIR/upload"
+
 if command -v ss >/dev/null 2>&1 && ss -ltn "sport = :$HTTP_PORT" | grep -q ":$HTTP_PORT"; then
   if command -v systemctl >/dev/null 2>&1 && [[ "$(id -u)" -eq 0 ]] && systemctl is-active --quiet zbxtable.service; then
     log 'Stopping the existing zbxtable service before reinstalling.'
@@ -115,12 +145,14 @@ if command -v systemctl >/dev/null 2>&1 && [[ "$(id -u)" -eq 0 ]]; then
   if ! id zbxtable >/dev/null 2>&1; then
     useradd --system --home-dir "$RUNTIME_ROOT" --shell /usr/sbin/nologin zbxtable
   fi
-  install -d -o zbxtable -g zbxtable "$RUNTIME_ROOT"
+  install -d -o zbxtable -g zbxtable -m 0750 "$RUNTIME_ROOT"
   install -m 0755 "$BUILD_DIR/$APP_NAME" "$RUNTIME_ROOT/$APP_NAME"
   rm -rf "$RUNTIME_ROOT/config"
   cp -a "$APP_DIR/config" "$RUNTIME_ROOT/config"
-  install -d -o zbxtable -g zbxtable "$RUNTIME_ROOT/log" "$RUNTIME_ROOT/download" "$RUNTIME_ROOT/upload"
-  chown -R zbxtable:zbxtable "$RUNTIME_ROOT/config"
+  install -d -o zbxtable -g zbxtable -m 0750 "$RUNTIME_ROOT/log" "$RUNTIME_ROOT/download" "$RUNTIME_ROOT/upload"
+  chown -R zbxtable:zbxtable "$RUNTIME_ROOT/config" "$RUNTIME_ROOT/log" "$RUNTIME_ROOT/download" "$RUNTIME_ROOT/upload"
+  chmod 0750 "$RUNTIME_ROOT/config"
+  chmod 0600 "$RUNTIME_ROOT/config/app.conf"
   [[ -f "$APP_DIR/zbxtable.service" ]] || fail "Service template is missing: $APP_DIR/zbxtable.service"
   sed "s|/usr/local/zbxtable|$RUNTIME_ROOT|g" "$APP_DIR/zbxtable.service" > /etc/systemd/system/zbxtable.service
   chmod 0644 /etc/systemd/system/zbxtable.service

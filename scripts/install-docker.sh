@@ -85,7 +85,7 @@ docker info >/dev/null 2>&1 || fail 'Docker daemon is not running.'
 [[ "$PORT" =~ ^[0-9]+$ ]] && (( PORT >= 1 && PORT <= 65535 )) || fail "Invalid port: $PORT"
 [[ -f "$ROOT_DIR/deployments/docker/Dockerfile.release" ]] || fail 'Dockerfile.release is missing.'
 [[ -s "$ROOT_DIR/api/v1/web/web/index.html" ]] || fail 'Embedded frontend is missing from this release.'
-mkdir -p "$CONFIG_DIR" "$ROOT_DIR/log" "$ROOT_DIR/download" "$ROOT_DIR/upload"
+install -d -m 0750 "$CONFIG_DIR" "$ROOT_DIR/log" "$ROOT_DIR/download" "$ROOT_DIR/upload"
 if [[ ! -f "$CONFIG_DIR/app.conf" ]]; then cp "$CONFIG_DIR/app.conf.example" "$CONFIG_DIR/app.conf"; chmod 600 "$CONFIG_DIR/app.conf"; fi
 if grep -q '^dbpass=change-me$' "$CONFIG_DIR/app.conf" 2>/dev/null; then
   DB_TYPE="${ZBXTABLE_DB_TYPE:-mysql}"
@@ -135,6 +135,7 @@ if ! docker build \
   fail "Docker image build failed. Check access to the configured base image registries and Go proxy. You can retry with --go-image, --runtime-image and --go-proxy mirror options."
 fi
 chown -R "$APP_UID:$APP_UID" "$CONFIG_DIR" "$ROOT_DIR/log" "$ROOT_DIR/download" "$ROOT_DIR/upload"
+chmod 0750 "$CONFIG_DIR" "$ROOT_DIR/log" "$ROOT_DIR/download" "$ROOT_DIR/upload"
 chmod 0600 "$CONFIG_DIR/app.conf"
 docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
 docker run -d --name "$CONTAINER" --restart unless-stopped -p "$PORT:8088" -v "$CONFIG_DIR:/app/config" -v "$ROOT_DIR/log:/app/log" -v "$ROOT_DIR/download:/app/download" -v "$ROOT_DIR/upload:/app/upload" "$IMAGE" >/dev/null
