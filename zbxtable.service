@@ -1,6 +1,6 @@
 [Unit]
-Description=ZbxTable - Zabbix Monitoring Tool
-Documentation=https://github.com/canghai908/zbxtable
+Description=ZbxTable 3.0.7 - Zabbix Inspection and Reporting
+Documentation=https://github.com/linguyuebai/zbxtable
 After=syslog.target
 After=network.target
 After=mysql.service

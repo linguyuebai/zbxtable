@@ -50,7 +50,7 @@ func InitRouter() *gin.Engine {
 	}
 
 	// 前端静态文件服务（使用 go:embed，不需要安装检查）。
-	// Vite 默认输出到 /assets，保留 /static 和 /css 兼容旧 Vue CLI 产物。
+	// Vite 默认输出到 /assets，保留 /static、/css、/js 和 /img 兼容旧 Vue CLI 产物。
 	// 注意：这些路由必须在安装检查中间件之前注册
 	mountEmbeddedDir := func(urlPath, dir string) {
 		if _, err := fs.Stat(subFS, dir); err != nil {
@@ -65,6 +65,9 @@ func InitRouter() *gin.Engine {
 	mountEmbeddedDir("/assets", "assets")
 	mountEmbeddedDir("/static", "static")
 	mountEmbeddedDir("/css", "css")
+	mountEmbeddedDir("/js", "js")
+	mountEmbeddedDir("/img", "img")
+	mountEmbeddedDir("/fonts", "fonts")
 
 	serveFrontendFile := func(path string, contentType string) gin.HandlerFunc {
 		return func(c *gin.Context) {

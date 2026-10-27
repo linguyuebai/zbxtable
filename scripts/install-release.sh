@@ -176,6 +176,18 @@ log() { printf '%s[zbxtable] %s%s\n' "$C_CYAN" "$*" "$C_RESET"; }
 step() { STEP=$((STEP + 1)); printf '%s[%02d] %s%s\n' "$C_GREEN" "$STEP" "$*" "$C_RESET"; }
 warn() { printf '%s[zbxtable] WARNING: %s%s\n' "$C_YELLOW" "$*" "$C_RESET" >&2; }
 
+check_frontend_assets() {
+  local base_url="$1" index_file="$TEMP_DIR/frontend-index.html" asset_path asset_file
+  curl -fsS --max-time 5 "$base_url/" -o "$index_file" || return 1
+  asset_path="$(sed -n 's/.*src=[\"'"'"']\([^\"'"'"']*\.js\)[\"'"'"'].*/\1/p' "$index_file" | head -n 1)"
+  [[ -n "$asset_path" ]] || return 1
+  [[ "$asset_path" == /* ]] || asset_path="/$asset_path"
+  asset_file="$TEMP_DIR/frontend-asset.js"
+  curl -fsS --max-time 5 "$base_url$asset_path" -o "$asset_file" || return 1
+  [[ -s "$asset_file" ]] || return 1
+  ! grep -qiE '<!doctype|<html[ >]' "$asset_file"
+}
+
 if [[ "${ACTION:-}" == uninstall ]]; then
   step 'Downloading the verified release uninstaller'
   if [[ "$VERSION" == latest ]]; then UNINSTALL_URL="https://github.com/$REPOSITORY/releases/latest/download/uninstall.sh"; else UNINSTALL_URL="https://github.com/$REPOSITORY/releases/download/$VERSION/uninstall.sh"; fi
@@ -319,6 +331,7 @@ if [[ "$NO_START" != 1 && -d /run/systemd/system ]] && command -v systemctl >/de
       sleep 1
     done
     [[ "$healthy" == 1 ]] || fail "Web interface health check failed: http://127.0.0.1:$HTTP_PORT/"
+    check_frontend_assets "http://127.0.0.1:$HTTP_PORT" || fail "Frontend asset health check failed: JavaScript files are not being served correctly on port $HTTP_PORT."
     log 'Web interface health check passed.'
   fi
   configure_firewall "$HTTP_PORT"
