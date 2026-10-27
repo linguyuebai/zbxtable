@@ -20,7 +20,7 @@ ZbxTable 可以直接使用 Zabbix 现有的 MySQL/MariaDB 或 PostgreSQL 数据
 通过同一个入口按提示输入数字，可选择 systemd 安装、Docker 安装、修复当前安装、卸载或退出；修复会保留现有配置并使用最新 Release 重新部署，安装时选择版本和 Web 端口，卸载时可选择保留或删除配置：
 
 ```bash
-curl -fsSL https://github.com/linguyuebai/zbxtable/releases/download/v3.0.7/install-release.sh | sudo bash
+curl -fsSL https://github.com/linguyuebai/zbxtable/releases/download/v3.0.8/install-release.sh | sudo bash
 ```
 
 卸载需要输入 `DELETE` 确认，只会移除 ZbxTable 服务、容器和文件，不会删除 Zabbix 服务或共享数据库。自动化或无交互部署仍可使用下方命令行参数。
@@ -371,28 +371,35 @@ ZbxTable 使用 Apache-2.0 许可证。详见 [LICENSE](LICENSE) 文件。
 
 ## 自动打包、发布与安装
 
-在 Windows PowerShell 运行 `scripts\publish-release.ps1 -Version v3.0.7`，或在 Linux 运行 `bash scripts/publish-release.sh`，脚本会检查必需文件并生成源码压缩包和 SHA256 校验文件。需要创建 GitHub Release 并上传时，先运行 `gh auth login`，再运行 `scripts\publish-release.ps1 -Version v3.0.7 -Upload` 或 `ZBXTABLE_VERSION=v3.0.7 bash scripts/publish-release.sh --upload`。上传需要显式指定参数。
+在 Windows PowerShell 运行 `scripts\publish-release.ps1 -Version v3.0.8`，或在 Linux 运行 `bash scripts/publish-release.sh`，脚本会检查必需文件并生成源码压缩包和 SHA256 校验文件。需要创建 GitHub Release 并上传时，先运行 `gh auth login`，再运行 `scripts\publish-release.ps1 -Version v3.0.8 -Upload` 或 `ZBXTABLE_VERSION=v3.0.8 bash scripts/publish-release.sh --upload`。上传需要显式指定参数。
 
-发布完成后，`dist/zbxtable-v3.0.7/` 是可直接上传到 Linux 的完整目录，`source.tar.gz` 是推荐的 Linux 压缩包，`source.zip` 用于 Windows。Linux 首次部署可使用 `sudo bash install-release.sh --install-deps --install-root=/opt/zbxtable` 自动准备基础环境；卸载使用 `scripts/uninstall.sh`，彻底删除时增加 `--purge --yes`。
+发布完成后，`dist/zbxtable-v3.0.8/` 是可直接上传到 Linux 的完整目录，`source.tar.gz` 是推荐的 Linux 压缩包，`source.zip` 用于 Windows。Linux 首次部署可使用 `sudo bash install-release.sh --install-deps --install-root=/opt/zbxtable` 自动准备基础环境；卸载使用 `scripts/uninstall.sh`，彻底删除时增加 `--purge --yes`。
 
-3.0.7 Linux 一行安装（环境检测、文件校验、安装、启动和状态输出）：
+3.0.8 Linux 一行安装（环境检测、文件校验、安装、启动和状态输出）：
 
 ```bash
-curl -fsSL https://github.com/linguyuebai/zbxtable/releases/download/v3.0.7/install-release.sh | sudo bash -s -- --version=v3.0.7 --install-deps --install-root=/opt/zbxtable
+curl -fsSL https://github.com/linguyuebai/zbxtable/releases/download/v3.0.8/install-release.sh | sudo bash -s -- --version=v3.0.8 --install-deps --install-root=/opt/zbxtable
 ```
 
 Docker 一键安装（自动检测 Docker、可选安装 Docker、构建前端镜像并检查网页）：
 
 ```bash
-curl -fsSL https://github.com/linguyuebai/zbxtable/releases/download/v3.0.7/install-release.sh | sudo bash -s -- --version=v3.0.7 --docker-install --port=8088
+curl -fsSL https://github.com/linguyuebai/zbxtable/releases/download/v3.0.8/install-release.sh | sudo bash -s -- --version=v3.0.8 --docker-install --port=8088
+```
+
+已有安装需要升级时，使用 `--update`。脚本会自动识别 systemd 或 Docker，保留 `config/app.conf`，下载最新 Release、替换程序和前端、重启服务并执行网页健康检查：
+
+```bash
+curl -fsSL https://github.com/linguyuebai/zbxtable/releases/latest/download/install-release.sh \
+  | sudo bash -s -- --update --install-root=/opt/zbxtable
 ```
 
 自定义端口时把 `--port=8088` 改为例如 `--port=9088`，访问 `http://服务器IP:9088`。
 
-如果服务器访问 Docker Hub 超时，可在菜单中填写可访问的 Go/Debian 镜像地址；命令行安装可使用 `--go-image`、`--runtime-image`、`--go-proxy` 和 `--go-download-base` 指定镜像源与 Go 下载地址。系统服务安装也支持 Go 代理参数。详见[网络受限环境部署说明](./docs/3.0.7-完整部署手册.md#网络受限时指定-go-代理和-docker-镜像)。
+如果服务器访问 Docker Hub 超时，可在菜单中填写可访问的 Go/Debian 镜像地址；命令行安装可使用 `--go-image`、`--runtime-image`、`--go-proxy` 和 `--go-download-base` 指定镜像源与 Go 下载地址。系统服务安装也支持 Go 代理参数。详见[网络受限环境部署说明](./docs/3.0.8-完整部署手册.md#网络受限时指定-go-代理和-docker-镜像)。
 
 Release 发布后，可通过 `scripts/install-release.sh`（Linux）或 `scripts/install-release.ps1`（Windows）从 GitHub 下载并校验安装。完整命令、系统依赖、数据库共用说明和故障排查见[GitHub 上传、打包与一键安装指南](./docs/GitHub上传与发布指南.md)。
 
-3.0.7 的完整部署、分别部署、升级回滚、巡检、日志告警和卸载步骤见 [3.0.7 完整部署手册](./docs/3.0.7-完整部署手册.md)。
+3.0.8 的完整部署、分别部署、升级回滚、巡检、日志告警和卸载步骤见 [3.0.8 完整部署手册](./docs/3.0.8-完整部署手册.md)。
 
 安装后可使用 `scripts/uninstall.sh --purge --yes`（Linux）或 `scripts/uninstall.ps1 -Purge -Yes`（Windows）一键删除 ZbxTable；默认不使用 `--purge` 时会保留 `config/app.conf`。卸载不会停止 Zabbix，也不会删除共用数据库中的 Zabbix 原生数据。

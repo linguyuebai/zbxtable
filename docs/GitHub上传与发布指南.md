@@ -28,7 +28,7 @@ git push origin 3.0
 
 ## 一键检查并生成发布包
 
-脚本自动检查必需文件、敏感/构建目录和 `git diff --check`，随后在 `dist/` 生成 `zbxtable-v3.0.7/` 发布目录、ZIP、Linux 可用的 TAR.GZ 及各自 SHA256 文件，并收集 Windows/Linux 一键安装和卸载脚本。`dist/` 和发布临时目录已加入忽略规则。
+脚本自动检查必需文件、敏感/构建目录和 `git diff --check`，随后在 `dist/` 生成 `zbxtable-v3.0.8/` 发布目录、ZIP、Linux 可用的 TAR.GZ 及各自 SHA256 文件，并收集 Windows/Linux 一键安装和卸载脚本。`dist/` 和发布临时目录已加入忽略规则。
 
 ### 应该上传哪个压缩包？
 
@@ -36,11 +36,11 @@ git push origin 3.0
 
 | 文件 | 用途 |
 |---|---|
-| `zbxtable-v3.0.7-source.tar.gz` | Linux、Ubuntu、Debian、CentOS 推荐使用；保留 Linux 脚本权限，包含代码、文档、配置模板、安装/运行脚本以及已存在的前端文件，是服务器端优先选择的完整包。 |
-| `zbxtable-v3.0.7-source.zip` | Windows Server 推荐使用；包含代码、文档、配置模板和安装/运行脚本。Windows 生成的 ZIP 可能不含前端构建产物，安装脚本会自动构建前端。 |
+| `zbxtable-v3.0.8-source.tar.gz` | Linux、Ubuntu、Debian、CentOS 推荐使用；保留 Linux 脚本权限，包含代码、文档、配置模板、安装/运行脚本以及已存在的前端文件，是服务器端优先选择的完整包。 |
+| `zbxtable-v3.0.8-source.zip` | Windows Server 推荐使用；包含代码、文档、配置模板和安装/运行脚本。Windows 生成的 ZIP 可能不含前端构建产物，安装脚本会自动构建前端。 |
 | 同名 `.sha256` | 下载后校验文件完整性，必须和对应压缩包配套使用。 |
 
-`dist/zbxtable-v3.0.7/` 是解压后的完整目录，适合通过 `scp` 或内网文件传输直接上传到 Linux；上传目录后可以直接运行 `scripts/install.sh`。正式上传 GitHub 时上传压缩包、校验文件和入口脚本即可，不需要上传 `dist/` 整个目录。
+`dist/zbxtable-v3.0.8/` 是解压后的完整目录，适合通过 `scp` 或内网文件传输直接上传到 Linux；上传目录后可以直接运行 `scripts/install.sh`。正式上传 GitHub 时上传压缩包、校验文件和入口脚本即可，不需要上传 `dist/` 整个目录。
 
 因此，Linux 服务器上传 `source.tar.gz` 和对应 `.tar.gz.sha256`；Windows 服务器上传 `source.zip` 和对应 `.zip.sha256`。不要上传旧版本名称中带 `dirty` 的开发包。版本号应替换成你实际发布的版本，例如 `v3.0.8`。
 
@@ -50,7 +50,7 @@ Windows PowerShell：
 
 ```powershell
 Set-ExecutionPolicy -Scope Process Bypass
-.\scripts\publish-release.ps1 -Version v3.0.7
+.\scripts\publish-release.ps1 -Version v3.0.8
 ```
 
 Linux/macOS：
@@ -74,13 +74,13 @@ Get-FileHash .\dist\*.zip -Algorithm SHA256
 打包完成后，可以先检查压缩包中是否存在关键文件：
 
 ```bash
-tar -tzf dist/zbxtable-v3.0.7-source.tar.gz | grep -E '(^|/)(README.zh-CN.md|config/app.conf.example|scripts/install.sh|scripts/run.sh)$'
+tar -tzf dist/zbxtable-v3.0.8-source.tar.gz | grep -E '(^|/)(README.zh-CN.md|config/app.conf.example|scripts/install.sh|scripts/run.sh)$'
 ```
 
 Windows PowerShell：
 
 ```powershell
-tar.exe -tf .\dist\zbxtable-v3.0.7-source.zip | Select-String 'README.zh-CN.md|config/app.conf.example|scripts/install.ps1|scripts/run.ps1'
+tar.exe -tf .\dist\zbxtable-v3.0.8-source.zip | Select-String 'README.zh-CN.md|config/app.conf.example|scripts/install.ps1|scripts/run.ps1'
 ```
 
 发布包包括代码、文档、安装脚本和示例配置，不包括真实 `config/app.conf`、日志、运行数据和 `build/`、`dist/`。Linux 端若已有构建好的 `api/v1/web/web/`，会把前端一并打入包；没有时安装步骤会尝试下载并构建前端。
@@ -96,14 +96,14 @@ gh auth login
 Windows：
 
 ```powershell
-.\scripts\publish-release.ps1 -Version v3.0.7 -Upload
+.\scripts\publish-release.ps1 -Version v3.0.8 -Upload
 ```
 
 发布到自己的仓库时：
 
 ```powershell
 .\scripts\publish-release.ps1 `
-  -Version v3.0.7 `
+  -Version v3.0.8 `
   -Repository your-name/zbxtable `
   -Upload
 ```
@@ -111,27 +111,27 @@ Windows：
 Linux/macOS：
 
 ```bash
-ZBXTABLE_VERSION=v3.0.7 bash scripts/publish-release.sh --upload
+ZBXTABLE_VERSION=v3.0.8 bash scripts/publish-release.sh --upload
 ```
 
 Linux 发布到自己的仓库：
 
 ```bash
-ZBXTABLE_VERSION=v3.0.7 \
+ZBXTABLE_VERSION=v3.0.8 \
   bash scripts/publish-release.sh \
   --repository=your-name/zbxtable \
   --upload
 ```
 
-上传会创建 `v3.0.7` Release，并附上 ZIP/TAR.GZ、校验和和安装脚本。需要先审阅 Release 再公开时，加 `-Draft`（PowerShell）或 `--draft`（Shell）。脚本检查默认开启；只有在有意跳过时才传 `-SkipChecks` 或 `--skip-checks`。
+上传会创建 `v3.0.8` Release，并附上 ZIP/TAR.GZ、校验和和安装脚本。需要先审阅 Release 再公开时，加 `-Draft`（PowerShell）或 `--draft`（Shell）。脚本检查默认开启；只有在有意跳过时才传 `-SkipChecks` 或 `--skip-checks`。
 
-也可以在 GitHub 网页中手工上传：进入仓库 **Releases → Draft a new release**，填写 Tag（例如 `v3.0.7`），把以下文件拖到 Assets：
+也可以在 GitHub 网页中手工上传：进入仓库 **Releases → Draft a new release**，填写 Tag（例如 `v3.0.8`），把以下文件拖到 Assets：
 
 ```text
-zbxtable-v3.0.7-source.tar.gz
-zbxtable-v3.0.7-source.tar.gz.sha256
-zbxtable-v3.0.7-source.zip
-zbxtable-v3.0.7-source.zip.sha256
+zbxtable-v3.0.8-source.tar.gz
+zbxtable-v3.0.8-source.tar.gz.sha256
+zbxtable-v3.0.8-source.zip
+zbxtable-v3.0.8-source.zip.sha256
 scripts/install-release.sh
 scripts/install-release.ps1
 scripts/install-release.bat
@@ -152,16 +152,16 @@ scripts/uninstall.bat
 
 ### 方式一：服务器直接从 Release 安装（推荐）
 
-3.0.7 一行安装命令（自动环境检测、依赖安装、SHA256 校验、文件检查、编译、启动和状态输出）：
+3.0.8 一行安装命令（自动环境检测、依赖安装、SHA256 校验、文件检查、编译、启动和状态输出）：
 
 ```bash
-curl -fsSL https://github.com/linguyuebai/zbxtable/releases/download/v3.0.7/install-release.sh | sudo bash -s -- --version=v3.0.7 --install-deps --install-root=/opt/zbxtable
+curl -fsSL https://github.com/linguyuebai/zbxtable/releases/download/v3.0.8/install-release.sh | sudo bash -s -- --version=v3.0.8 --install-deps --install-root=/opt/zbxtable
 ```
 
 不启动服务，仅完成安装：
 
 ```bash
-curl -fsSL https://github.com/linguyuebai/zbxtable/releases/download/v3.0.7/install-release.sh | sudo bash -s -- --version=v3.0.7 --install-deps --install-root=/opt/zbxtable --no-start
+curl -fsSL https://github.com/linguyuebai/zbxtable/releases/download/v3.0.8/install-release.sh | sudo bash -s -- --version=v3.0.8 --install-deps --install-root=/opt/zbxtable --no-start
 ```
 
 脚本会输出分阶段进度、环境检查、Release 地址、压缩包名称、SHA256 结果、必需文件检查、安装路径、编译结果、systemd 状态、访问地址、默认账号密码和防火墙处理结果。数据库密码不会写入 Release；首次安装时由 `scripts/install.sh` 交互读取。默认账号为 `admin`，初始密码为 `Zbxtable`，首次登录后必须修改。
@@ -169,7 +169,20 @@ curl -fsSL https://github.com/linguyuebai/zbxtable/releases/download/v3.0.7/inst
 Docker 一行安装（自动检查 Docker；缺少 Docker 时安装，支持端口参数）：
 
 ```bash
-curl -fsSL https://github.com/linguyuebai/zbxtable/releases/download/v3.0.7/install-release.sh | sudo bash -s -- --version=v3.0.7 --docker-install --port=8088
+curl -fsSL https://github.com/linguyuebai/zbxtable/releases/download/v3.0.8/install-release.sh | sudo bash -s -- --version=v3.0.8 --docker-install --port=8088
+```
+
+### 一键更新或修复现有安装
+
+`--update` 是保留配置的非交互升级入口，会自动判断当前运行的是 systemd 还是 Docker，下载最新 Release，替换程序和前端并执行健康检查。需要指定固定版本或只修复当前版本时可使用 `--repair --version=...`。
+
+```bash
+curl -fsSL https://github.com/linguyuebai/zbxtable/releases/latest/download/install-release.sh \
+  | sudo bash -s -- --update --install-root=/opt/zbxtable
+
+# 保留配置，重新部署 v3.0.8（自动识别 systemd/Docker）
+curl -fsSL https://github.com/linguyuebai/zbxtable/releases/download/v3.0.8/install-release.sh \
+  | sudo bash -s -- --repair --version=v3.0.8 --install-root=/opt/zbxtable
 ```
 
 已有 Docker 时使用 `--docker`；自定义端口可改为 `--port=9088`。Docker 安装会构建带前端的镜像、挂载 `config/` 和运行目录、启动 `zbxtable` 容器，并用 HTTP 请求验证页面。数据库连接仍由 `config/app.conf` 控制。
@@ -193,7 +206,7 @@ sudo bash install-release.sh --install-deps --install-root=/opt/zbxtable
 安装指定版本：
 
 ```bash
-sudo bash install-release.sh --version=v3.0.7 --install-root=/opt/zbxtable
+sudo bash install-release.sh --version=v3.0.8 --install-root=/opt/zbxtable
 ```
 
 Windows Server：需要 PowerShell 5.1+、Go 1.24+、Git、Node.js/npm。以管理员 PowerShell 执行：
@@ -208,12 +221,12 @@ powershell.exe -ExecutionPolicy Bypass -File .\install-release.ps1 -InstallRoot 
 Linux：
 
 ```bash
-scp dist/zbxtable-v3.0.7-source.tar.gz dist/zbxtable-v3.0.7-source.tar.gz.sha256 user@server:/tmp/
+scp dist/zbxtable-v3.0.8-source.tar.gz dist/zbxtable-v3.0.8-source.tar.gz.sha256 user@server:/tmp/
 ssh user@server
 sudo mkdir -p /opt/zbxtable-src
-sudo tar -xzf /tmp/zbxtable-v3.0.7-source.tar.gz -C /opt/zbxtable-src --strip-components=1
+sudo tar -xzf /tmp/zbxtable-v3.0.8-source.tar.gz -C /opt/zbxtable-src --strip-components=1
 cd /opt/zbxtable-src
-sudo sha256sum -c /tmp/zbxtable-v3.0.7-source.tar.gz.sha256
+sudo sha256sum -c /tmp/zbxtable-v3.0.8-source.tar.gz.sha256
 sudo env ZBXTABLE_DB_NAME=zabbix ZBXTABLE_DB_USER=zabbix ZBXTABLE_DB_PASS='数据库密码' bash scripts/install.sh
 sudo bash scripts/run.sh
 ```
@@ -223,10 +236,10 @@ sudo bash scripts/run.sh
 也可以直接上传已生成的目录：
 
 ```bash
-scp -r dist/zbxtable-v3.0.7 user@server:/tmp/
+scp -r dist/zbxtable-v3.0.8 user@server:/tmp/
 ssh user@server
 sudo rm -rf /opt/zbxtable
-sudo mv /tmp/zbxtable-v3.0.7 /opt/zbxtable
+sudo mv /tmp/zbxtable-v3.0.8 /opt/zbxtable
 cd /opt/zbxtable
 sudo env ZBXTABLE_DB_NAME=zabbix ZBXTABLE_DB_USER=zabbix \
   ZBXTABLE_DB_PASS='数据库密码' bash scripts/install.sh
@@ -244,8 +257,8 @@ sudo env ZBXTABLE_DB_NAME=zabbix ZBXTABLE_DB_USER=zabbix \
 Windows PowerShell：
 
 ```powershell
-Expand-Archive .\zbxtable-v3.0.7-source.zip -DestinationPath C:\Temp\zbxtable
-cd C:\Temp\zbxtable\zbxtable-v3.0.7
+Expand-Archive .\zbxtable-v3.0.8-source.zip -DestinationPath C:\Temp\zbxtable
+cd C:\Temp\zbxtable\zbxtable-v3.0.8
 Copy-Item config\app.conf.example config\app.conf
 notepad config\app.conf
 powershell.exe -ExecutionPolicy Bypass -File .\scripts\install.ps1
@@ -257,7 +270,7 @@ powershell.exe -ExecutionPolicy Bypass -File .\scripts\run.ps1
 安装指定版本：
 
 ```powershell
-powershell.exe -ExecutionPolicy Bypass -File .\install-release.ps1 -Version v3.0.7 -InstallRoot C:\ProgramData\zbxtable
+powershell.exe -ExecutionPolicy Bypass -File .\install-release.ps1 -Version v3.0.8 -InstallRoot C:\ProgramData\zbxtable
 ```
 
 Linux Release 安装器默认覆盖旧的 ZbxTable 程序，替换前会停止并重新启动 `zbxtable.service`，现有 `config/app.conf` 会保留；使用 `--no-overwrite` 可改为发现目录存在就停止。务必先备份配置和数据库。安装器不会停止或修改 Zabbix 服务。Windows 安装完成后运行 `scripts\run.ps1`。
@@ -267,7 +280,7 @@ Linux Release 安装器默认覆盖旧的 ZbxTable 程序，替换前会停止�
 一行彻底卸载：
 
 ```bash
-curl -fsSL https://github.com/linguyuebai/zbxtable/releases/download/v3.0.7/uninstall.sh | sudo bash -s -- --install-root=/opt/zbxtable --runtime-root=/usr/local/zbxtable --purge --yes
+curl -fsSL https://github.com/linguyuebai/zbxtable/releases/download/v3.0.8/uninstall.sh | sudo bash -s -- --install-root=/opt/zbxtable --runtime-root=/usr/local/zbxtable --purge --yes
 ```
 
 卸载脚本只管理名为 `zbxtable` 的服务和 ZbxTable 自身目录，不会停止 Zabbix Server、Zabbix Agent、Zabbix Proxy，也不会删除共用数据库中的 Zabbix 原生表。
