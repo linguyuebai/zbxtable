@@ -11,6 +11,10 @@ RUNTIME_ROOT="${ZBXTABLE_RUNTIME_ROOT:-/usr/local/zbxtable}"
 log() { printf '[zbxtable] %s\n' "$*"; }
 fail() { printf '[zbxtable] ERROR: %s\n' "$*" >&2; exit 1; }
 
+# Do not let Go silently fetch a different toolchain than the one installed.
+export GOTOOLCHAIN=local
+export GOPROXY="${ZBXTABLE_GOPROXY:-https://goproxy.cn|https://proxy.golang.org|direct}"
+
 if [[ "${ZBXTABLE_INSTALL_DEPS:-0}" == "1" ]]; then
   bash "$APP_DIR/scripts/bootstrap-linux.sh"
 fi
@@ -50,7 +54,8 @@ else
   RUN_MODE="${ZBXTABLE_RUN_MODE:-prod}"
 
   if [[ -z "$DB_PASS" ]]; then
-    read -r -s -p 'Zabbix database password: ' DB_PASS
+    [[ -r /dev/tty && -w /dev/tty ]] || fail 'Database password is required; set ZBXTABLE_DB_PASS or run from an interactive terminal.'
+    read -r -s -p 'Zabbix database password: ' DB_PASS < /dev/tty
     printf '\n'
   fi
   [[ -n "$DB_PASS" ]] || fail 'Database password cannot be empty.'
@@ -96,8 +101,10 @@ elif [[ "${ZBXTABLE_SKIP_FRONTEND:-0}" != "1" ]]; then
   bash "$APP_DIR/scripts/prepare-frontend.sh"
   [[ -s "$APP_DIR/api/v1/web/web/index.html" ]] || fail 'Frontend index.html is missing after preparation.'
 fi
-log 'Downloading Go dependencies'
-go mod download
+log "Downloading Go dependencies (GOPROXY=$GOPROXY)"
+if ! go mod download; then
+  fail "Go dependency download failed. Check server network/DNS or configure ZBXTABLE_GOPROXY (current: $GOPROXY), then rerun the installer."
+fi
 log "Building $APP_NAME"
 CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o "$BUILD_DIR/$APP_NAME" ./main.go
 chmod +x "$BUILD_DIR/$APP_NAME"

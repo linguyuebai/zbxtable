@@ -389,6 +389,8 @@ curl -fsSL https://github.com/linguyuebai/zbxtable/releases/download/v3.0.7/inst
 
 自定义端口时把 `--port=8088` 改为例如 `--port=9088`，访问 `http://服务器IP:9088`。
 
+如果服务器访问 Docker Hub 超时，可在菜单中填写可访问的 Go/Debian 镜像地址；命令行安装可使用 `--go-image`、`--runtime-image`、`--go-proxy` 和 `--go-download-base` 指定镜像源与 Go 下载地址。系统服务安装也支持 Go 代理参数。详见[网络受限环境部署说明](./docs/3.0.7-完整部署手册.md#网络受限时指定-go-代理和-docker-镜像)。
+
 Release 发布后，可通过 `scripts/install-release.sh`（Linux）或 `scripts/install-release.ps1`（Windows）从 GitHub 下载并校验安装。完整命令、系统依赖、数据库共用说明和故障排查见[GitHub 上传、打包与一键安装指南](./docs/GitHub上传与发布指南.md)。
 
 3.0.7 的完整部署、分别部署、升级回滚、巡检、日志告警和卸载步骤见 [3.0.7 完整部署手册](./docs/3.0.7-完整部署手册.md)。

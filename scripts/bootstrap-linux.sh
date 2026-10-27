@@ -2,6 +2,7 @@
 set -Eeuo pipefail
 
 GO_VERSION="${ZBXTABLE_GO_VERSION:-1.24.0}"
+GO_DOWNLOAD_BASE="${ZBXTABLE_GO_DOWNLOAD_BASE:-https://go.dev/dl}"
 log() { printf '[zbxtable-env] %s\n' "$*"; }
 fail() { printf '[zbxtable-env] ERROR: %s\n' "$*" >&2; exit 1; }
 
@@ -59,9 +60,18 @@ if [[ "$go_ok" != 1 ]]; then
   esac
   tmp="$(mktemp -d)"
   trap 'rm -rf "$tmp"' EXIT
-  url="https://go.dev/dl/go${GO_VERSION}.linux-${go_arch}.tar.gz"
-  log "Installing Go ${GO_VERSION} from $url"
-  curl -fsSL "$url" -o "$tmp/go.tgz"
+  urls=("$GO_DOWNLOAD_BASE/go${GO_VERSION}.linux-${go_arch}.tar.gz")
+  [[ "$GO_DOWNLOAD_BASE" == 'https://go.dev/dl' ]] && urls+=("https://golang.google.cn/dl/go${GO_VERSION}.linux-${go_arch}.tar.gz")
+  downloaded=0
+  for url in "${urls[@]}"; do
+    log "Installing Go ${GO_VERSION} from $url"
+    if curl --connect-timeout 10 --max-time 180 -fsSL "$url" -o "$tmp/go.tgz"; then
+      downloaded=1
+      break
+    fi
+    log "Go download failed from $url; trying the next mirror."
+  done
+  [[ "$downloaded" == 1 ]] || fail "Unable to download Go ${GO_VERSION}. Set ZBXTABLE_GO_DOWNLOAD_BASE to an accessible mirror."
   rm -rf /usr/local/go
   tar -C /usr/local -xzf "$tmp/go.tgz"
   ln -sf /usr/local/go/bin/go /usr/local/bin/go
