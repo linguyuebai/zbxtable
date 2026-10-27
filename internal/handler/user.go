@@ -211,10 +211,29 @@ func ChangePasswordGin(c *gin.Context) {
 		return
 	}
 
-	oldPassword := gjson.Get(string(body), "old").String()
-	newPassword := gjson.Get(string(body), "new").String()
+	payload := gjson.ParseBytes(body)
+	oldPassword := payload.Get("old").String()
+	if oldPassword == "" {
+		oldPassword = payload.Get("oldpwd").String()
+	}
+	newPassword := payload.Get("new").String()
+	if newPassword == "" {
+		newPassword = payload.Get("password").String()
+	}
+	if newPassword == "" {
+		newPassword = payload.Get("pwd1").String()
+	}
+	confirmPassword := payload.Get("confirm").String()
+	if confirmPassword == "" {
+		confirmPassword = payload.Get("pwd2").String()
+	}
 	if oldPassword == "" || newPassword == "" {
 		response.ValidationError(c, "当前密码和新密码不能为空")
+		return
+	}
+
+	if confirmPassword != "" && confirmPassword != newPassword {
+		response.ValidationError(c, "new password and confirmation do not match")
 		return
 	}
 
