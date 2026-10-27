@@ -96,6 +96,13 @@ func TestLogPathHandling(t *testing.T) {
 func TestInitLoggerWithDifferentPaths(t *testing.T) {
 	// 创建临时测试目录
 	tempDir := t.TempDir()
+	t.Cleanup(func() {
+		if Log != nil {
+			if closer, ok := Log.Out.(interface{ Close() error }); ok {
+				_ = closer.Close()
+			}
+		}
+	})
 	originalWd, _ := os.Getwd()
 	os.Chdir(tempDir)
 	defer os.Chdir(originalWd)
