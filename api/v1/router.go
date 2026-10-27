@@ -119,19 +119,6 @@ func InitRouter() *gin.Engine {
 	r.GET("/install", func(c *gin.Context) {
 		serveFrontendDocument(c)
 	})
-	// The installer is a client-side route in the embedded application.  It
-	// must be registered explicitly because /install/status and the other
-	// installer endpoints are API routes, while a browser GET /install needs
-	// the SPA document.
-	r.GET("/install", func(c *gin.Context) {
-		data, err := fs.ReadFile(subFS, "index.html")
-		if err != nil {
-			c.String(http.StatusInternalServerError, "Failed to load frontend: %v", err)
-			return
-		}
-		c.Data(http.StatusOK, "text/html; charset=utf-8", data)
-	})
-
 	// 公开的拓扑预览接口（无需认证）
 	r.GET("/public/topology/:id", handler.GetPublicTopologyByID)
 
