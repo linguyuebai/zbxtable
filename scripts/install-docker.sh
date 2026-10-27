@@ -12,6 +12,29 @@ CONFIG_DIR="${ZBXTABLE_DOCKER_CONFIG:-$ROOT_DIR/config}"
 INSTALL_DOCKER=0
 log() { printf '[zbxtable-docker] %s\n' "$*"; }
 fail() { printf '[zbxtable-docker] ERROR: %s\n' "$*" >&2; exit 1; }
+check_frontend_assets() {
+  local base_url="http://127.0.0.1:$PORT" index_file asset_path asset_file
+  index_file="$(mktemp)"
+  asset_file="$(mktemp)"
+  if ! curl -fsS --max-time 5 "$base_url/" -o "$index_file"; then
+    rm -f "$index_file" "$asset_file"
+    return 1
+  fi
+  asset_path="$(sed -n 's/.*src=[\"'"'"']\([^\"'"'"']*\.js\)[\"'"'"'].*/\1/p' "$index_file" | head -n 1)"
+  if [[ -z "$asset_path" ]]; then
+    rm -f "$index_file" "$asset_file"
+    return 1
+  fi
+  [[ "$asset_path" == /* ]] || asset_path="/$asset_path"
+  if ! curl -fsS --max-time 5 "$base_url$asset_path" -o "$asset_file"; then
+    rm -f "$index_file" "$asset_file"
+    return 1
+  fi
+  [[ -s "$asset_file" ]] && ! grep -qiE '<!doctype|<html[ >]' "$asset_file"
+  local result=$?
+  rm -f "$index_file" "$asset_file"
+  return "$result"
+}
 configure_firewall() {
   if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -q '^Status: active'; then
     ufw allow "$1/tcp" >/dev/null || log "WARNING: could not update UFW for port $1"
@@ -118,6 +141,7 @@ docker run -d --name "$CONTAINER" --restart unless-stopped -p "$PORT:8088" -v "$
 attempt=1
 while (( attempt <= 30 )); do
   if curl -fsS --max-time 2 "http://127.0.0.1:$PORT/" | grep -qi '<html'; then
+    check_frontend_assets || fail "Frontend asset health check failed: JavaScript files are not being served correctly on port $PORT."
     configure_firewall "$PORT"
     log "Installation complete: http://127.0.0.1:$PORT"
     log "Logs: docker logs -f $CONTAINER"

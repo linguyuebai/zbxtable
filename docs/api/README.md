@@ -6,7 +6,7 @@ ZbxTable 提供 RESTful API，支持通过 HTTP 请求访问系统功能。
 
 ## 基础信息
 
-- **Base URL**: `http://your-domain:8088/api/v1`
+- **Base URL**: `http://your-domain:8088/v1`
 - **认证方式**: Bearer Token
 - **请求格式**: JSON
 - **响应格式**: JSON
@@ -16,13 +16,13 @@ ZbxTable 提供 RESTful API，支持通过 HTTP 请求访问系统功能。
 所有 API 请求需要在 Header 中携带 Token：
 
 ```http
-Tokenyour_token_here
+X-Token: your_token_here
 ```
 
 获取 Token：
 
 ```http
-POST /api/v1/login
+POST /v1/login
 Content-Type: application/json
 
 {
@@ -84,19 +84,19 @@ Content-Type: application/json
 #### 登录
 
 ```http
-POST /api/v1/login
+POST /v1/login
 ```
 
 #### 登出
 
 ```http
-POST /api/v1/logout
+POST /v1/logout
 ```
 
 #### 获取用户信息
 
 ```http
-GET /api/v1/user/info
+GET /v1/user
 ```
 
 ### 主机管理
@@ -104,13 +104,13 @@ GET /api/v1/user/info
 #### 获取主机列表
 
 ```http
-GET /api/v1/hosts?page=1&page_size=20
+GET /v1/host?page=1&limit=20
 ```
 
 #### 获取主机详情
 
 ```http
-GET /api/v1/hosts/:id
+GET /v1/host/:id
 ```
 
 ### 告警管理
@@ -118,7 +118,7 @@ GET /api/v1/hosts/:id
 #### 获取告警列表
 
 ```http
-GET /api/v1/alarms?start_time=2024-01-01&end_time=2024-01-31
+GET /v1/alarm?begin=2024-01-01%2000:00:00&end=2024-01-31%2023:59:59
 ```
 
 ### 报表管理
@@ -126,7 +126,7 @@ GET /api/v1/alarms?start_time=2024-01-01&end_time=2024-01-31
 #### 生成报表
 
 ```http
-POST /api/v1/reports
+POST /v1/report
 ```
 
 更多 API 接口正在完善中...

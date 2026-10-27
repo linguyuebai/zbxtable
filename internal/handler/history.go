@@ -28,20 +28,12 @@ func GetHistoryByItemID(c *gin.Context) {
 		c.JSON(http.StatusOK, HistoryRes)
 		return
 	}
-	var Start, End int64
-	if len(v.Period) == 0 || v.Period[0] == "" || v.Period[1] == "" {
-		tEnd := time.Now()
-		End = tEnd.Unix()
-		Start = tEnd.Add(-10 * time.Minute).Unix()
-	} else {
-		timeLayout := "2006-01-02 15:04:05"
-		loc, _ := time.LoadLocation("Local")
-		st, _ := time.ParseInLocation(timeLayout, v.Period[0], loc)
-		en, _ := time.ParseInLocation(timeLayout, v.Period[1], loc)
-		Start = st.Unix()
-		End = en.Unix()
+	start, end, periodErr := queryPeriod(v.Period, 10*time.Minute)
+	if periodErr != nil {
+		response.BadRequest(c, periodErr.Error())
+		return
 	}
-	his, err := model.GetHistoryByItemID(v.Itemids, v.History, Start, End)
+	his, err := model.GetHistoryByItemID(v.Itemids, v.History, start, end)
 	if err != nil {
 		HistoryRes.Code = 500
 		HistoryRes.Message = err.Error()

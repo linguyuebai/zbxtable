@@ -479,6 +479,12 @@ func InitRouter() *gin.Engine {
 			c.JSON(404, gin.H{"code": 404, "message": "Not Found"})
 			return
 		}
+		// Never return the SPA document for a missing static asset. Browsers
+		// otherwise treat HTML as JavaScript/CSS and fail with a blank page.
+		if strings.Contains(path, ".") {
+			c.Status(http.StatusNotFound)
+			return
+		}
 
 		// 对于根路径和其他前端路由，返回 index.html
 		data, err := fs.ReadFile(subFS, "index.html")

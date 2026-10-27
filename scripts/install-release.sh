@@ -11,6 +11,7 @@ SKIP_CHECKSUM=0
 SKIP_FRONTEND=0
 INSTALL_DEPS=0
 NO_START=0
+REPAIR=0
 DOCKER=0
 DOCKER_INSTALL=0
 DOCKER_PORT="${ZBXTABLE_HTTP_PORT:-8088}"
@@ -57,6 +58,7 @@ Usage: bash install-release.sh [options]
   --go-download-base=URL Go archive mirror directory
   --no-firewall         Do not add the web port to an active firewall
   --menu                Show the interactive install/uninstall menu (default without options)
+  --repair              Repair the current systemd or Docker installation using the latest release
   --uninstall           Uninstall systemd service and ZbxTable container
   --purge               With --uninstall, also remove saved configuration
   --yes                 With --uninstall, skip the confirmation prompt
@@ -82,6 +84,7 @@ EOF
     --go-download-base=*) GO_DOWNLOAD_BASE="${arg#*=}" ;;
     --no-firewall) NO_FIREWALL=1 ;;
     --menu) INTERACTIVE=1 ;;
+    --repair) REPAIR=1 ;;
     --uninstall) ACTION=uninstall ;;
     --purge) MENU_PURGE=1 ;;
     --yes) ASSUME_YES=1 ;;
@@ -89,17 +92,39 @@ EOF
   esac
 done
 
+if [[ "$REPAIR" == 1 && "${ACTION:-}" != uninstall ]]; then
+  VERSION=latest
+  if [[ "$DOCKER" != 1 ]] && command -v docker >/dev/null 2>&1 && docker container inspect "${ZBXTABLE_DOCKER_CONTAINER:-zbxtable}" >/dev/null 2>&1; then
+    DOCKER=1
+  fi
+  if [[ "$DOCKER" != 1 ]]; then
+    INSTALL_DEPS=1
+  fi
+fi
+
 if [[ "$#" == 0 || "$INTERACTIVE" == 1 ]]; then
   [[ -r /dev/tty && -w /dev/tty ]] || fail 'Interactive menu needs a terminal. Run with --help and pass install options directly.'
-  printf '\nZbxTable 安装管理器\n  1) 系统服务安装（systemd）\n  2) Docker 安装（缺少 Docker 时自动安装）\n  3) 卸载 ZbxTable（系统服务和 Docker 容器）\n  4) 退出\n\n' > /dev/tty
-  printf '请选择 [1-4]: ' > /dev/tty
+  printf '\nZbxTable 安装管理器\n  1) 系统服务安装（systemd）\n  2) Docker 安装（缺少 Docker 时自动安装）\n  3) 修复当前安装（保留配置并使用最新 Release 重装）\n  4) 卸载 ZbxTable（系统服务和 Docker 容器）\n  5) 退出\n\n' > /dev/tty
+  printf '请选择 [1-5]: ' > /dev/tty
   IFS= read -r MENU_CHOICE < /dev/tty || fail 'Could not read menu selection.'
   case "$MENU_CHOICE" in
     1) DOCKER=0; INSTALL_DEPS=1 ;;
     2) DOCKER=1; DOCKER_INSTALL=1 ;;
-    3) ACTION=uninstall ;;
-    4) printf '已退出。\n' > /dev/tty; exit 0 ;;
-    *) fail 'Invalid selection. Choose 1, 2, 3, or 4.' ;;
+    3)
+      REPAIR=1
+      VERSION=latest
+      if command -v docker >/dev/null 2>&1 && docker container inspect "${ZBXTABLE_DOCKER_CONTAINER:-zbxtable}" >/dev/null 2>&1; then
+        DOCKER=1
+        log 'Detected existing Docker container; repair will rebuild and replace that container.'
+      else
+        DOCKER=0
+        INSTALL_DEPS=1
+        log 'Repair mode will rebuild and replace the systemd application while preserving configuration.'
+      fi
+      ;;
+    4) ACTION=uninstall ;;
+    5) printf '已退出。\n' > /dev/tty; exit 0 ;;
+    *) fail 'Invalid selection. Choose 1, 2, 3, 4, or 5.' ;;
   esac
   if [[ "${ACTION:-}" == uninstall ]]; then
     printf '卸载选项：\n  1) 保留配置文件\n  2) 删除配置和程序文件\n请选择 [1-2]（默认 1）: ' > /dev/tty
@@ -113,12 +138,12 @@ if [[ "$#" == 0 || "$INTERACTIVE" == 1 ]]; then
     IFS= read -r CONFIRM_UNINSTALL < /dev/tty || fail 'Could not read uninstall confirmation.'
     [[ "$CONFIRM_UNINSTALL" == DELETE ]] || { printf '已取消卸载。\n' > /dev/tty; exit 0; }
     ASSUME_YES=1
-  else
-    printf '选择版本：\n  1) 稳定版本 v3.0.7\n  2) 最新 Release（latest）\n  3) 输入其他版本标签\n请选择 [1-3]（默认 1）: ' > /dev/tty
+  elif [[ "$REPAIR" != 1 ]]; then
+    printf '选择版本：\n  1) 最新正式 Release（latest）\n  2) 固定版本 v3.0.7\n  3) 输入其他版本标签\n请选择 [1-3]（默认 1）: ' > /dev/tty
     IFS= read -r MENU_VERSION_CHOICE < /dev/tty || fail 'Could not read version selection.'
     case "${MENU_VERSION_CHOICE:-1}" in
-      1) VERSION=v3.0.7 ;;
-      2) VERSION=latest ;;
+      1) VERSION=latest ;;
+      2) VERSION=v3.0.7 ;;
       3)
         printf '请输入版本标签（例如 v3.0.7）: ' > /dev/tty
         IFS= read -r VERSION < /dev/tty || fail 'Could not read version tag.'
@@ -288,6 +313,13 @@ if [[ "$PORT_SET" == 1 && "$DOCKER" != 1 ]]; then
   log "Configured Web port: $DOCKER_PORT"
 fi
 if [[ "$DOCKER" == 1 ]]; then
+  if [[ "$REPAIR" == 1 && "$PORT_SET" != 1 ]] && command -v docker >/dev/null 2>&1; then
+    detected_port="$(docker port "${ZBXTABLE_DOCKER_CONTAINER:-zbxtable}" 8088/tcp 2>/dev/null | sed -n 's/.*:\([0-9][0-9]*\)$/\1/p' | head -n 1)"
+    if [[ "$detected_port" =~ ^[0-9]+$ ]]; then
+      DOCKER_PORT="$detected_port"
+      log "Detected existing Docker Web port: $DOCKER_PORT"
+    fi
+  fi
   step 'Installing and starting Docker container'
   docker_args=("--port=$DOCKER_PORT")
   docker_args+=("--go-image=$GO_IMAGE" "--runtime-image=$RUNTIME_IMAGE" "--go-proxy=$GO_PROXY")
