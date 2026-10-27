@@ -331,11 +331,20 @@ func collectInspectionResult(policy InspectionPolicy, inst *APIInstance, host Ho
 		return result, err
 	}
 	result.DiskPercent, result.DiskFree = diskPct, diskFree
+	// Keep persisted inspection records and API/report values concise and
+	// consistent. Percentages and capacities are displayed with two decimals.
+	result.CPUPercent = Round(result.CPUPercent, 2)
+	result.MemoryTotal = Round(result.MemoryTotal, 2)
+	result.MemoryUsed = Round(result.MemoryUsed, 2)
+	result.MemoryPercent = Round(result.MemoryPercent, 2)
+	result.DiskPercent = Round(math.Max(0, math.Min(100, result.DiskPercent)), 2)
+	result.DiskFree = Round(result.DiskFree, 2)
 	offset, timeOK, err := inspectionTimeOffset(inst, host.HostID, keys.Time)
 	if err != nil {
 		return result, err
 	}
 	result.TimeOffset, result.TimeSynced = offset, timeOK && offset <= thresholds.TimeOffset
+	result.TimeOffset = Round(result.TimeOffset, 2)
 	if !timeOK {
 		result.Status = "warning"
 		result.Details += "时间同步检测项缺失;"
@@ -514,9 +523,9 @@ func BuildInspectionSummary(rows []InspectionResult) InspectionSummary {
 		}
 	}
 	if summary.Total > 0 {
-		summary.CPUAverage = cpu / float64(summary.Total)
-		summary.MemoryAverage = memory / float64(summary.Total)
-		summary.DiskAverage = disk / float64(summary.Total)
+		summary.CPUAverage = Round(cpu/float64(summary.Total), 2)
+		summary.MemoryAverage = Round(memory/float64(summary.Total), 2)
+		summary.DiskAverage = Round(disk/float64(summary.Total), 2)
 	}
 	for name, count := range issueCounts {
 		summary.CommonIssues = append(summary.CommonIssues, InspectionIssue{Name: name, Count: count})
@@ -563,9 +572,9 @@ func BuildInspectionDeviceSummaries(rows []InspectionResult) []InspectionDeviceS
 	result := make([]InspectionDeviceSummary, 0, len(byHost))
 	for _, item := range byHost {
 		if item.Samples > 0 {
-			item.CPUAverage = item.cpu / float64(item.Samples)
-			item.MemoryAverage = item.memory / float64(item.Samples)
-			item.DiskAverage = item.disk / float64(item.Samples)
+			item.CPUAverage = Round(item.cpu/float64(item.Samples), 2)
+			item.MemoryAverage = Round(item.memory/float64(item.Samples), 2)
+			item.DiskAverage = Round(item.disk/float64(item.Samples), 2)
 			item.TimeSynced = item.timeSyncedCount == item.Samples
 		}
 		result = append(result, item.InspectionDeviceSummary)

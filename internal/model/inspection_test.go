@@ -42,10 +42,10 @@ func TestInspectionUnexpectedAccounts(t *testing.T) {
 func TestBuildInspectionSummary(t *testing.T) {
 	now := time.Now()
 	summary := BuildInspectionSummary([]InspectionResult{
-		{Status: "ok", CPUPercent: 20, MemoryPercent: 30, DiskPercent: 40, CheckedAt: now},
-		{Status: "warning", CPUPercent: 40, MemoryPercent: 50, DiskPercent: 60, Details: "CPU超阈值;", CheckedAt: now.Add(time.Minute)},
+		{Status: "ok", CPUPercent: 20.123, MemoryPercent: 30.123, DiskPercent: 40.123, CheckedAt: now},
+		{Status: "warning", CPUPercent: 40.456, MemoryPercent: 50.456, DiskPercent: 60.456, Details: "CPU超阈值;", CheckedAt: now.Add(time.Minute)},
 	})
-	if summary.Total != 2 || summary.Normal != 1 || summary.Abnormal != 1 || summary.CPUAverage != 30 || len(summary.CommonIssues) != 1 {
+	if summary.Total != 2 || summary.Normal != 1 || summary.Abnormal != 1 || summary.CPUAverage != 30.29 || summary.MemoryAverage != 40.29 || summary.DiskAverage != 50.29 || len(summary.CommonIssues) != 1 {
 		t.Fatalf("summary = %+v", summary)
 	}
 }
