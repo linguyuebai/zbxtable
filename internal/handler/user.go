@@ -203,6 +203,30 @@ func DeleteUserGin(c *gin.Context) {
 	response.SuccessWithMessage(c, "删除成功", nil)
 }
 
+// GetManagerInfoGin returns the profile for the authenticated user.
+func GetManagerInfoGin(c *gin.Context) {
+	usernameValue, ok := c.Get("username")
+	if !ok {
+		response.Unauthorized(c, "登录状态失效")
+		return
+	}
+
+	user, err := model.GetManagerByName(usernameValue.(string))
+	if err != nil {
+		response.Unauthorized(c, "用户不存在或登录状态失效")
+		return
+	}
+	response.Success(c, gin.H{
+		"id":       user.ID,
+		"username": user.Username,
+		"avatar":   user.Avatar,
+		"status":   user.Status,
+		"role":     user.Role,
+		"created":  user.Created,
+		"theme":    user.Theme,
+	})
+}
+
 // ChangePasswordGin 修改当前登录用户密码
 func ChangePasswordGin(c *gin.Context) {
 	body, err := io.ReadAll(c.Request.Body)

@@ -33,6 +33,8 @@ EOF
 done
 
 fail() { echo "[zbxtable] ERROR: $*" >&2; exit 1; }
+step() { STEP=$((STEP + 1)); printf '[%02d] %s\n' "$STEP" "$*"; }
+STEP=0
 validate_path() {
   local path="$1"
   [[ "$path" == /* ]] || fail "Path must be absolute: $path"
@@ -53,6 +55,7 @@ if [[ "$YES" != 1 ]]; then
   [[ "$answer" == DELETE ]] || { echo 'Uninstall cancelled.'; exit 0; }
 fi
 
+step 'Stopping and removing the ZbxTable systemd service'
 if command -v systemctl >/dev/null 2>&1; then
   systemctl stop zbxtable.service 2>/dev/null || true
   systemctl disable zbxtable.service 2>/dev/null || true
@@ -60,11 +63,15 @@ if command -v systemctl >/dev/null 2>&1; then
   systemctl daemon-reload 2>/dev/null || true
 fi
 
+step 'Removing the ZbxTable Docker container, if present'
 if command -v docker >/dev/null 2>&1 && docker container inspect "$DOCKER_CONTAINER" >/dev/null 2>&1; then
-  echo "Removing ZbxTable Docker container: $DOCKER_CONTAINER"
+  echo "[zbxtable] Removing container: $DOCKER_CONTAINER"
   docker rm -f "$DOCKER_CONTAINER" >/dev/null
+else
+  echo '[zbxtable] No ZbxTable Docker container found.'
 fi
 
+step 'Saving configuration when requested'
 CONFIG_BACKUP=""
 if [[ "$PURGE" != 1 ]]; then
   if [[ -f "$INSTALL_ROOT/config/app.conf" ]]; then
@@ -76,16 +83,19 @@ if [[ "$PURGE" != 1 ]]; then
   fi
 fi
 
+step 'Removing ZbxTable program and runtime files'
 [[ "$RUNTIME_ROOT" == "$INSTALL_ROOT" ]] || rm -rf -- "$RUNTIME_ROOT"
 rm -rf -- "$INSTALL_ROOT"
 
 if [[ "$PURGE" != 1 && -n "$CONFIG_BACKUP" ]]; then
+  step 'Restoring preserved configuration'
   install -d "$INSTALL_ROOT/config"
   install -m 600 "$CONFIG_BACKUP" "$INSTALL_ROOT/config/app.conf"
   rm -f "$CONFIG_BACKUP"
   echo "Preserved configuration: $INSTALL_ROOT/config/app.conf"
 fi
 
+step 'Uninstall finished'
 echo 'ZbxTable has been removed. Zabbix services and the shared database were not modified.'
 if id zbxtable >/dev/null 2>&1; then
   echo 'The system user zbxtable was kept. Remove it manually only if it is not used elsewhere.'

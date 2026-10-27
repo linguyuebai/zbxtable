@@ -307,10 +307,15 @@ for required_file in scripts/install.sh scripts/run.sh scripts/uninstall.sh scri
 done
 if [[ -f "$TEMP_DIR/app.conf.saved" ]]; then install -D -m 600 "$TEMP_DIR/app.conf.saved" "$INSTALL_ROOT/config/app.conf"; fi
 if [[ "$PORT_SET" == 1 && "$DOCKER" != 1 ]]; then
-  if grep -q '^httpport=' "$INSTALL_ROOT/config/app.conf"; then
-    sed -i "s/^httpport=.*/httpport=$DOCKER_PORT/" "$INSTALL_ROOT/config/app.conf"
+  export ZBXTABLE_HTTP_PORT="$DOCKER_PORT"
+  if [[ -f "$INSTALL_ROOT/config/app.conf" ]]; then
+    if grep -q '^httpport=' "$INSTALL_ROOT/config/app.conf"; then
+      sed -i "s/^httpport=.*/httpport=$DOCKER_PORT/" "$INSTALL_ROOT/config/app.conf"
+    else
+      printf '\nhttpport=%s\n' "$DOCKER_PORT" >> "$INSTALL_ROOT/config/app.conf"
+    fi
   else
-    printf '\nhttpport=%s\n' "$DOCKER_PORT" >> "$INSTALL_ROOT/config/app.conf"
+    log "No saved configuration found; the first-run setup will use Web port $DOCKER_PORT."
   fi
   log "Configured Web port: $DOCKER_PORT"
 fi

@@ -452,6 +452,7 @@ func InitRouter() *gin.Engine {
 
 			managerGroup := api.Group("/manager")
 			{
+				managerGroup.POST("/info", handler.GetManagerInfoGin)
 				managerGroup.POST("/chpwd", handler.ChangePasswordGin)
 			}
 

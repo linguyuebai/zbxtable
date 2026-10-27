@@ -144,6 +144,10 @@ while (( attempt <= 30 )); do
     check_frontend_assets || fail "Frontend asset health check failed: JavaScript files are not being served correctly on port $PORT."
     configure_firewall "$PORT"
     log "Installation complete: http://127.0.0.1:$PORT"
+    log "Web: http://$(hostname -I 2>/dev/null | awk '{print $1}'):$PORT"
+    log 'Account: admin'
+    log 'Password: Zbxtable (first login; change it immediately)'
+    log "Container: $CONTAINER"
     log "Logs: docker logs -f $CONTAINER"
     exit 0
   fi

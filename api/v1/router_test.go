@@ -60,3 +60,26 @@ func TestInstallPageIsServedByBrowserRoute(t *testing.T) {
 		t.Fatalf("GET /install/status status = %d, want 200", status.Code)
 	}
 }
+
+func TestManagerInfoEndpointIsRegisteredAndProtected(t *testing.T) {
+	router := InitRouter()
+	response := httptest.NewRecorder()
+	request := httptest.NewRequest("POST", "/v1/manager/info", strings.NewReader(`{}`))
+	router.ServeHTTP(response, request)
+	if response.Code != 401 {
+		t.Fatalf("POST /v1/manager/info HTTP status = %d, want 401", response.Code)
+	}
+	if !strings.Contains(response.Body.String(), `"code":50014`) {
+		t.Fatalf("POST /v1/manager/info response = %s, want authentication error (not 404)", response.Body.String())
+	}
+}
+
+func TestLoginEndpointIsRegistered(t *testing.T) {
+	router := InitRouter()
+	response := httptest.NewRecorder()
+	request := httptest.NewRequest("POST", "/v1/login", strings.NewReader(`{invalid-json`))
+	router.ServeHTTP(response, request)
+	if response.Code != 200 || !strings.Contains(response.Body.String(), `"code":400`) {
+		t.Fatalf("POST /v1/login was not routed to the login handler: HTTP %d: %s", response.Code, response.Body.String())
+	}
+}
