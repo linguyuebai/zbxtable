@@ -33,6 +33,12 @@ if [[ -t 1 ]]; then
 else
   C_GREEN=''; C_CYAN=''; C_YELLOW=''; C_RESET=''
 fi
+# Keep logging helpers before argument parsing and the interactive menu.  The
+# repair menu emits diagnostics before the temporary directory is created; a
+# late definition made `log` resolve as an external command on bash 5.
+log() { printf '%s[zbxtable] %s%s\n' "$C_CYAN" "$*" "$C_RESET"; }
+step() { STEP=$((STEP + 1)); printf '%s[%02d] %s%s\n' "$C_GREEN" "$STEP" "$*" "$C_RESET"; }
+warn() { printf '%s[zbxtable] WARNING: %s%s\n' "$C_YELLOW" "$*" "$C_RESET" >&2; }
 fail() { printf '\033[31m[zbxtable] ERROR: %s\033[0m\n' "$*" >&2; exit 1; }
 for arg in "$@"; do
   case "$arg" in
@@ -197,10 +203,6 @@ cleanup() {
 }
 trap cleanup EXIT
 
-log() { printf '%s[zbxtable] %s%s\n' "$C_CYAN" "$*" "$C_RESET"; }
-step() { STEP=$((STEP + 1)); printf '%s[%02d] %s%s\n' "$C_GREEN" "$STEP" "$*" "$C_RESET"; }
-warn() { printf '%s[zbxtable] WARNING: %s%s\n' "$C_YELLOW" "$*" "$C_RESET" >&2; }
-
 check_frontend_assets() {
   local base_url="$1" index_file="$TEMP_DIR/frontend-index.html" asset_path asset_file
   curl -fsS --max-time 5 "$base_url/" -o "$index_file" || return 1
@@ -305,10 +307,15 @@ for required_file in scripts/install.sh scripts/run.sh scripts/uninstall.sh scri
 done
 if [[ -f "$TEMP_DIR/app.conf.saved" ]]; then install -D -m 600 "$TEMP_DIR/app.conf.saved" "$INSTALL_ROOT/config/app.conf"; fi
 if [[ "$PORT_SET" == 1 && "$DOCKER" != 1 ]]; then
-  if grep -q '^httpport=' "$INSTALL_ROOT/config/app.conf"; then
-    sed -i "s/^httpport=.*/httpport=$DOCKER_PORT/" "$INSTALL_ROOT/config/app.conf"
+  export ZBXTABLE_HTTP_PORT="$DOCKER_PORT"
+  if [[ -f "$INSTALL_ROOT/config/app.conf" ]]; then
+    if grep -q '^httpport=' "$INSTALL_ROOT/config/app.conf"; then
+      sed -i "s/^httpport=.*/httpport=$DOCKER_PORT/" "$INSTALL_ROOT/config/app.conf"
+    else
+      printf '\nhttpport=%s\n' "$DOCKER_PORT" >> "$INSTALL_ROOT/config/app.conf"
+    fi
   else
-    printf '\nhttpport=%s\n' "$DOCKER_PORT" >> "$INSTALL_ROOT/config/app.conf"
+    log "No saved configuration found; the first-run setup will use Web port $DOCKER_PORT."
   fi
   log "Configured Web port: $DOCKER_PORT"
 fi

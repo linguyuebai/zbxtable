@@ -145,13 +145,33 @@ func DatabaseInit() error {
 	var v User
 	err := DB.Where("username = ?", "admin").First(&v).Error
 	//检查权限
-	if err == nil && v.Operation == "" {
-		err := DB.Model(&User{}).Where("id = ?", v.ID).Update("operation", "['add', 'edit', 'delete','update']").Error
-		if err != nil {
-			logger.Log.Info(err)
-			return fmt.Errorf("update admin operation failed: %w", err)
+	if err == nil {
+		// Normalize administrator defaults left by older releases. Preserve a
+		// valid bcrypt hash, but repair empty or plaintext initial passwords.
+		updates := map[string]interface{}{}
+		if v.Operation == "" {
+			updates["operation"] = "['add', 'edit', 'delete','update']"
 		}
-		logger.Log.Info("update admin operation successfully")
+		if v.Role == "" {
+			updates["role"] = "admin"
+		}
+		if v.Status != 0 {
+			updates["status"] = 0
+		}
+		if len(v.Password) < 7 || !(strings.HasPrefix(v.Password, "$2a$") || strings.HasPrefix(v.Password, "$2b$") || strings.HasPrefix(v.Password, "$2y$")) {
+			password, hashErr := utils.PasswordHash("Zbxtable")
+			if hashErr != nil {
+				return fmt.Errorf("create default admin password failed: %w", hashErr)
+			}
+			updates["password"] = password
+		}
+		if len(updates) > 0 {
+			if updateErr := DB.Model(&User{}).Where("id = ?", v.ID).Updates(updates).Error; updateErr != nil {
+				logger.Log.Info(updateErr)
+				return fmt.Errorf("update admin defaults failed: %w", updateErr)
+			}
+			logger.Log.Info("administrator defaults normalized")
+		}
 	}
 	//添加管理员账号
 	if errors.Is(err, gorm.ErrRecordNotFound) {

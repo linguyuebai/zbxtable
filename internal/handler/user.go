@@ -203,6 +203,30 @@ func DeleteUserGin(c *gin.Context) {
 	response.SuccessWithMessage(c, "删除成功", nil)
 }
 
+// GetManagerInfoGin returns the profile for the authenticated user.
+func GetManagerInfoGin(c *gin.Context) {
+	usernameValue, ok := c.Get("username")
+	if !ok {
+		response.Unauthorized(c, "登录状态失效")
+		return
+	}
+
+	user, err := model.GetManagerByName(usernameValue.(string))
+	if err != nil {
+		response.Unauthorized(c, "用户不存在或登录状态失效")
+		return
+	}
+	response.Success(c, gin.H{
+		"id":       user.ID,
+		"username": user.Username,
+		"avatar":   user.Avatar,
+		"status":   user.Status,
+		"role":     user.Role,
+		"created":  user.Created,
+		"theme":    user.Theme,
+	})
+}
+
 // ChangePasswordGin 修改当前登录用户密码
 func ChangePasswordGin(c *gin.Context) {
 	body, err := io.ReadAll(c.Request.Body)
@@ -211,10 +235,29 @@ func ChangePasswordGin(c *gin.Context) {
 		return
 	}
 
-	oldPassword := gjson.Get(string(body), "old").String()
-	newPassword := gjson.Get(string(body), "new").String()
+	payload := gjson.ParseBytes(body)
+	oldPassword := payload.Get("old").String()
+	if oldPassword == "" {
+		oldPassword = payload.Get("oldpwd").String()
+	}
+	newPassword := payload.Get("new").String()
+	if newPassword == "" {
+		newPassword = payload.Get("password").String()
+	}
+	if newPassword == "" {
+		newPassword = payload.Get("pwd1").String()
+	}
+	confirmPassword := payload.Get("confirm").String()
+	if confirmPassword == "" {
+		confirmPassword = payload.Get("pwd2").String()
+	}
 	if oldPassword == "" || newPassword == "" {
 		response.ValidationError(c, "当前密码和新密码不能为空")
+		return
+	}
+
+	if confirmPassword != "" && confirmPassword != newPassword {
+		response.ValidationError(c, "new password and confirmation do not match")
 		return
 	}
 
