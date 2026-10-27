@@ -41,6 +41,9 @@ jobs:
           cache: npm
           cache-dependency-path: zbxtable-web/package-lock.json
 
+      - name: Patch Zabbix instance integration UI
+        run: node scripts/patch-frontend-zabbix.js zbxtable-web
+
       - name: Setup Go
         uses: actions/setup-go@v5
         with:

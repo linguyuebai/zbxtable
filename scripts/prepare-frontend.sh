@@ -32,6 +32,7 @@ if [[ -z "$WEB_DIR" ]]; then
   WEB_DIR="$TEMP_DIR/web"
 fi
 [[ -f "$WEB_DIR/package.json" ]] || { echo "Frontend package.json not found: $WEB_DIR" >&2; exit 1; }
+node "$ROOT_DIR/scripts/patch-frontend-zabbix.js" "$WEB_DIR"
 cd "$WEB_DIR"
 if command -v yarn >/dev/null 2>&1 && [[ -f yarn.lock ]]; then
   yarn install --frozen-lockfile

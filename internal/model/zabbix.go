@@ -1,57 +1,69 @@
 package model
 
 import (
-	"crypto/tls"
 	"errors"
 	"fmt"
-	"net/http"
-	"strconv"
+	"net/url"
 	"strings"
 	"time"
 	"zbxtable/pkg/logger"
 	"zbxtable/pkg/utils"
 
 	zabbix "github.com/canghai908/zabbix-go"
+	"gorm.io/gorm"
 )
 
 // TestZabbixInstanceConfig 测试 Zabbix 配置能否连通
 func TestZabbixInstanceConfig(webURL, user, pass, token string) (string, error) {
-	web := strings.TrimRight(strings.TrimSpace(webURL), "/")
+	web := normalizeZabbixWebURL(webURL)
 	if web == "" {
-		return "", errors.New("url is empty")
+		return "", errors.New("invalid Zabbix URL: use http(s)://host[:port][/path]")
 	}
-	apiURL := web + "/api_jsonrpc.php"
-
-	transport := &http.Transport{
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-	}
-	client := http.Client{Transport: transport, Timeout: 5 * time.Second}
-	resp, err := client.Get(apiURL)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusPreconditionFailed {
-		return "", errors.New("Zabbix API 地址不正确，状态码: " + strconv.Itoa(resp.StatusCode))
-	}
-
-	api := zabbix.NewAPI(apiURL)
+	api := zabbix.NewAPI(web + "/api_jsonrpc.php")
 	if strings.TrimSpace(token) != "" {
-		api.SetAuth(strings.TrimSpace(token))
+		if err := api.SetAuth(strings.TrimSpace(token)); err != nil {
+			return "", fmt.Errorf("Zabbix API token setup failed: %w", err)
+		}
 	} else {
 		if strings.TrimSpace(user) == "" || strings.TrimSpace(pass) == "" {
-			return "", errors.New("请输入 token，或提供 user/pass")
+			return "", errors.New("provide an API token or a Zabbix username and password")
 		}
 		if _, err := api.Login(strings.TrimSpace(user), strings.TrimSpace(pass)); err != nil {
-			return "", err
+			return "", fmt.Errorf("Zabbix login failed: %w", err)
 		}
 	}
-
-	ver, err := api.Version()
+	if err := validateZabbixAPIReadAccess(api); err != nil {
+		return "", fmt.Errorf("Zabbix API read permission check failed: %w", err)
+	}
+	ver, err := zabbixAPIVersion(api)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("Zabbix API request failed: %w", err)
 	}
 	return ver, nil
+}
+
+func zabbixAPIVersion(api *zabbix.API) (string, error) {
+	if info := api.GetVersionInfo(); info != nil && info.Version != "" {
+		return info.Version, nil
+	}
+	return api.Version()
+}
+func validateZabbixAPIReadAccess(api *zabbix.API) error {
+	_, err := api.CallWithError("host.get", map[string]interface{}{"output": []string{"hostid"}, "limit": 1})
+	return err
+}
+func normalizeZabbixWebURL(raw string) string {
+	web := strings.TrimRight(strings.TrimSpace(raw), "/")
+	web = strings.TrimSuffix(web, "/api_jsonrpc.php")
+	web = strings.TrimRight(web, "/")
+	if web == "" {
+		return ""
+	}
+	u, err := url.Parse(web)
+	if err != nil || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || (u.Scheme != "http" && u.Scheme != "https") {
+		return ""
+	}
+	return web
 }
 
 // DecryptInstanceCredentials 解密 Zabbix 实例的密码和 Token
@@ -124,11 +136,12 @@ func GetZabbixInstanceByInstance(instance string) (*ZabbixInstance, error) {
 	return &inst, nil
 }
 
-// CreateZabbixInstance 创建 Zabbix 实例
+// CreateZabbixInstance creates a Zabbix integration.
 func CreateZabbixInstance(m *ZabbixInstance) error {
-	m.URL = strings.TrimRight(strings.TrimSpace(m.URL), "/")
+	m.URL = normalizeZabbixWebURL(m.URL)
 	m.Instance = strings.TrimSpace(m.Instance)
 	m.Name = strings.TrimSpace(m.Name)
+	m.User = strings.TrimSpace(m.User)
 	if m.Instance == "" {
 		return errors.New("instance is required")
 	}
@@ -136,131 +149,128 @@ func CreateZabbixInstance(m *ZabbixInstance) error {
 		return errors.New("name is required")
 	}
 	if m.URL == "" {
-		return errors.New("URL is required")
+		return errors.New("URL must be an http(s) Zabbix web address or API endpoint")
 	}
-
-	// 加密密码和Token
-	encryptionKey := GetEncryptionKey()
+	if strings.TrimSpace(m.Token) == "" && (m.User == "" || strings.TrimSpace(m.Pass) == "") {
+		return errors.New("provide a Zabbix API token or username and password")
+	}
+	key := GetEncryptionKey()
+	var err error
 	if m.Pass != "" {
-		encryptedPass, err := utils.EncryptString(m.Pass, encryptionKey)
+		m.Pass, err = utils.EncryptString(m.Pass, key)
 		if err != nil {
-			return fmt.Errorf("加密密码失败: %w", err)
+			return fmt.Errorf("encrypt password: %w", err)
 		}
-		m.Pass = encryptedPass
 	}
 	if m.Token != "" {
-		encryptedToken, err := utils.EncryptString(m.Token, encryptionKey)
+		m.Token, err = utils.EncryptString(m.Token, key)
 		if err != nil {
-			return fmt.Errorf("加密Token失败: %w", err)
+			return fmt.Errorf("encrypt token: %w", err)
 		}
-		m.Token = encryptedToken
 	}
-
+	if m.NotifyMethod == "" {
+		m.NotifyMethod = "webhook"
+	}
 	m.UpdatedAt = time.Now()
 	return DB.Create(m).Error
 }
 
-// UpdateZabbixInstance 更新 Zabbix 实例
+// UpdateZabbixInstance updates an integration while preserving omitted credentials.
 func UpdateZabbixInstance(zid int, patch *ZabbixInstance) (*ZabbixInstance, error) {
-	var instance ZabbixInstance
-	if err := DB.First(&instance, zid).Error; err != nil {
+	var cur ZabbixInstance
+	if err := DB.First(&cur, zid).Error; err != nil {
 		return nil, err
 	}
-
-	// 解密现有的密码和Token用于比较
-	encryptionKey := GetEncryptionKey()
-	currentPass := instance.Pass
-	currentToken := instance.Token
-	if currentPass != "" {
-		decryptedPass, _ := utils.DecryptString(currentPass, encryptionKey)
-		currentPass = decryptedPass
-	}
-	if currentToken != "" {
-		decryptedToken, _ := utils.DecryptString(currentToken, encryptionKey)
-		currentToken = decryptedToken
-	}
-
-	newWeb := strings.TrimRight(strings.TrimSpace(patch.URL), "/")
-	changedConn := false
-	if newWeb != "" && newWeb != strings.TrimRight(strings.TrimSpace(instance.URL), "/") {
-		changedConn = true
-	}
-	if strings.TrimSpace(patch.User) != strings.TrimSpace(instance.User) ||
-		strings.TrimSpace(patch.Pass) != currentPass ||
-		strings.TrimSpace(patch.Token) != currentToken {
-		changedConn = true
-	}
-
-	updates := map[string]interface{}{}
-	if strings.TrimSpace(patch.Instance) != "" {
-		updates["instance"] = strings.TrimSpace(patch.Instance)
-	}
-	if strings.TrimSpace(patch.Name) != "" {
-		updates["name"] = strings.TrimSpace(patch.Name)
-	}
-	if newWeb != "" {
-		updates["url"] = newWeb
-	}
-	updates["user"] = patch.User
-
-	// 加密密码和Token
-	if patch.Pass != "" {
-		encryptedPass, err := utils.EncryptString(patch.Pass, encryptionKey)
-		if err != nil {
-			return nil, fmt.Errorf("加密密码失败: %w", err)
+	key := GetEncryptionKey()
+	oldPass, oldToken := DecryptInstanceCredentials(&cur)
+	urlv := cur.URL
+	if strings.TrimSpace(patch.URL) != "" {
+		urlv = normalizeZabbixWebURL(patch.URL)
+		if urlv == "" {
+			return nil, errors.New("URL must be an http(s) Zabbix web address or API endpoint")
 		}
-		updates["pass"] = encryptedPass
+	}
+	user := strings.TrimSpace(patch.User)
+	if user == "" {
+		user = cur.User
+	}
+	pass := strings.TrimSpace(patch.Pass)
+	token := strings.TrimSpace(patch.Token)
+	if pass == "" && !patch.ClearPass {
+		pass = oldPass
+	}
+	if token == "" && !patch.ClearToken {
+		token = oldToken
+	}
+	if token == "" && (user == "" || pass == "") {
+		return nil, errors.New("provide a Zabbix API token or username and password")
+	}
+	updates := map[string]interface{}{"instance": strings.TrimSpace(patch.Instance), "name": strings.TrimSpace(patch.Name), "url": urlv, "user": user, "enabled": patch.Enabled, "notify_method": patch.NotifyMethod, "updated_at": time.Now()}
+	if updates["instance"] == "" {
+		updates["instance"] = cur.Instance
+	}
+	if updates["name"] == "" {
+		updates["name"] = cur.Name
+	}
+	if updates["notify_method"] == "" {
+		updates["notify_method"] = cur.NotifyMethod
+	}
+	var err error
+	if pass != "" {
+		updates["pass"], err = utils.EncryptString(pass, key)
+		if err != nil {
+			return nil, err
+		}
 	} else {
 		updates["pass"] = ""
 	}
-
-	if patch.Token != "" {
-		encryptedToken, err := utils.EncryptString(patch.Token, encryptionKey)
+	if token != "" {
+		updates["token"], err = utils.EncryptString(token, key)
 		if err != nil {
-			return nil, fmt.Errorf("加密Token失败: %w", err)
+			return nil, err
 		}
-		updates["token"] = encryptedToken
 	} else {
 		updates["token"] = ""
 	}
-
-	updates["enabled"] = patch.Enabled
-	updates["notify_method"] = patch.NotifyMethod
-	updates["updated_at"] = time.Now()
-
-	if changedConn {
+	changed := urlv != cur.URL || user != cur.User || pass != oldPass || token != oldToken
+	if changed {
 		updates["last_test_ok"] = false
-		updates["last_test_message"] = "未验证"
+		updates["last_test_message"] = "not tested"
 		updates["last_test_at"] = nil
 		updates["version"] = ""
 	}
-
 	if err := DB.Model(&ZabbixInstance{}).Where("id = ?", zid).Updates(updates).Error; err != nil {
 		return nil, err
 	}
-
-	if err := DB.First(&instance, zid).Error; err != nil {
-		return nil, err
+	if changed {
+		GetAPIPool().RemoveAPI(zid)
 	}
-	return &instance, nil
+	return GetZabbixInstanceByZID(zid)
 }
 
-// DeleteZabbixInstance 删除实例
 func DeleteZabbixInstance(zid int) error {
-	return DB.Delete(&ZabbixInstance{}, zid).Error
+	r := DB.Delete(&ZabbixInstance{}, zid)
+	if r.Error != nil {
+		return r.Error
+	}
+	if r.RowsAffected == 0 {
+		return gorm.ErrRecordNotFound
+	}
+	GetAPIPool().RemoveAPI(zid)
+	return nil
 }
 
-// SetZabbixInstanceEnabled 启用/禁用实例
 func SetZabbixInstanceEnabled(zid int, enabled bool) (*ZabbixInstance, error) {
-	var instance ZabbixInstance
-	if err := DB.First(&instance, zid).Error; err != nil {
+	var cur ZabbixInstance
+	if err := DB.First(&cur, zid).Error; err != nil {
 		return nil, err
 	}
 	if err := DB.Model(&ZabbixInstance{}).Where("id = ?", zid).Update("enabled", enabled).Error; err != nil {
 		return nil, err
 	}
-	instance.Enabled = enabled
-	return &instance, nil
+	GetAPIPool().RemoveAPI(zid)
+	cur.Enabled = enabled
+	return &cur, nil
 }
 
 // TestAndUpdateZabbixInstance 测试并更新实例

@@ -24,6 +24,8 @@ if (-not $WebDir) {
 }
 try {
   if (-not (Test-Path (Join-Path $WebDir 'package.json'))) { throw "Frontend package.json not found: $WebDir" }
+  node (Join-Path $Root 'scripts\patch-frontend-zabbix.js') $WebDir
+  if ($LASTEXITCODE -ne 0) { throw 'Applying the Zabbix integration UI patch failed.' }
   Push-Location $WebDir
   if ((Get-Command yarn -ErrorAction SilentlyContinue) -and (Test-Path 'yarn.lock')) { yarn install --frozen-lockfile; yarn build }
   else { npm ci; npm run build }

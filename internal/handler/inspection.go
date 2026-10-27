@@ -241,6 +241,8 @@ func ExportInspection(c *gin.Context) {
 		PolicyID       int    `json:"policy_id"`
 		Status         string `json:"status"`
 		IncludeDetails *bool  `json:"include_details"`
+		Start          string `json:"start"`
+		End            string `json:"end"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		response.BadRequest(c, "请求参数格式错误")
@@ -253,12 +255,30 @@ func ExportInspection(c *gin.Context) {
 	if body.Status != "" {
 		query = query.Where("status = ?", body.Status)
 	}
+	if body.Start != "" {
+		start, err := time.Parse(time.RFC3339, body.Start)
+		if err != nil {
+			response.BadRequest(c, "start 必须是 RFC3339 时间")
+			return
+		}
+		query = query.Where("checked_at >= ?", start)
+	}
+	if body.End != "" {
+		end, err := time.Parse(time.RFC3339, body.End)
+		if err != nil {
+			response.BadRequest(c, "end 必须是 RFC3339 时间")
+			return
+		}
+		query = query.Where("checked_at <= ?", end)
+	}
 	var rows []model.InspectionResult
 	if err := query.Find(&rows).Error; err != nil {
 		response.DatabaseError(c, err.Error())
 		return
 	}
-	includeDetails := true
+	// 管理报表默认只显示汇总和每台设备的周期平均值；需要审计明细时
+	// 显式传 include_details=true。这样周报/月报不会展开每天的数值。
+	includeDetails := false
 	if body.IncludeDetails != nil {
 		includeDetails = *body.IncludeDetails
 	}

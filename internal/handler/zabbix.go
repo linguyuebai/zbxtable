@@ -1,15 +1,18 @@
 package handler
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"strconv"
+	"strings"
 	model "zbxtable/internal/model"
 	"zbxtable/pkg/response"
 
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
+	"gorm.io/gorm"
 )
 
 // ZabbixInstanceafeResponse 安全的租户响应结构，隐藏敏感信息
@@ -32,6 +35,15 @@ type ZabbixInstanceafeResponse struct {
 	// 不包含 Pass, Token, WebhookToken 字段
 }
 
+func zabbixInstanceID(c *gin.Context) (int, bool) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil || id <= 0 {
+		response.BadRequest(c, "无效的 Zabbix 实例 ID")
+		return 0, false
+	}
+	return id, true
+}
+
 // toTenantSafeResponse 将租户转换为安全响应
 func toTenantSafeResponse(instance *model.ZabbixInstance) ZabbixInstanceafeResponse {
 	if instance == nil {
@@ -52,6 +64,7 @@ func toTenantSafeResponse(instance *model.ZabbixInstance) ZabbixInstanceafeRespo
 		Instance:         instance.Instance,
 		Name:             instance.Name,
 		URL:              instance.URL,
+		User:             instance.User,
 		Enabled:          instance.Enabled,
 		Version:          instance.Version,
 		LastTestOk:       instance.LastTestOk,
@@ -84,11 +97,17 @@ func ListZabbixInstanceGin(c *gin.Context) {
 
 // GetZabbixInstanceGin 获取单个租户（用于编辑）
 func GetZabbixInstanceGin(c *gin.Context) {
-	idStr := c.Param("id")
-	id, _ := strconv.ParseInt(idStr, 10, 64)
+	id, ok := zabbixInstanceID(c)
+	if !ok {
+		return
+	}
 
-	tenant, err := model.GetZabbixInstanceByZID(int(id))
+	tenant, err := model.GetZabbixInstanceByZID(id)
 	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			response.NotFound(c, "Zabbix 实例不存在")
+			return
+		}
 		response.InternalError(c, err.Error())
 		return
 	}
@@ -107,11 +126,47 @@ func GetZabbixInstanceGin(c *gin.Context) {
 		"last_test_ok":       tenant.LastTestOk,
 		"last_test_message":  tenant.LastTestMessage,
 		"notify_method":      tenant.NotifyMethod,
+		"auth_methods":       toTenantSafeResponse(tenant).AuthMethods,
+		"last_test_at":       tenant.LastTestAt,
 		"ms_agent_installed": tenant.MSAgentInstalled,
 		"ms_agent_version":   tenant.MSAgentVersion,
 		"webhook_installed":  tenant.WebhookInstalled,
 		"webhook_url":        tenant.WebhookURL,
 	})
+}
+
+func parseZabbixInstanceBody(body []byte, existing *model.ZabbixInstance) *model.ZabbixInstance {
+	get := func(key string) string { return gjson.GetBytes(body, key).String() }
+	m := &model.ZabbixInstance{
+		Instance: get("instance"), Name: get("name"), URL: get("url"), User: get("user"),
+		Pass: get("pass"), Token: get("token"), NotifyMethod: get("notify_method"),
+		ClearPass:  gjson.GetBytes(body, "clear_pass").Bool(),
+		ClearToken: gjson.GetBytes(body, "clear_token").Bool(),
+		Enabled:    gjson.GetBytes(body, "enabled").Bool(),
+	}
+	switch strings.ToLower(gjson.GetBytes(body, "auth_type").String()) {
+	case "password":
+		m.ClearToken = true
+	case "token":
+		m.ClearPass = true
+	}
+	if m.Instance == "" {
+		m.Instance = get("tenant_id")
+	}
+	if existing != nil {
+		if !gjson.GetBytes(body, "enabled").Exists() {
+			m.Enabled = existing.Enabled
+		}
+		if m.NotifyMethod == "" {
+			m.NotifyMethod = existing.NotifyMethod
+		}
+		if m.User == "" {
+			m.User = existing.User
+		}
+	} else if !gjson.GetBytes(body, "enabled").Exists() {
+		m.Enabled = true
+	}
+	return m
 }
 
 // CreateZabbixInstanceGin 创建租户
@@ -121,16 +176,7 @@ func CreateZabbixInstanceGin(c *gin.Context) {
 		response.InternalError(c, "请求体读取失败")
 		return
 	}
-	m := &model.ZabbixInstance{
-		Instance:     gjson.Get(string(body), "instance").String(),
-		Name:         gjson.Get(string(body), "name").String(),
-		URL:          gjson.Get(string(body), "url").String(),
-		User:         gjson.Get(string(body), "user").String(),
-		Pass:         gjson.Get(string(body), "pass").String(),
-		Token:        gjson.Get(string(body), "token").String(),
-		Enabled:      gjson.Get(string(body), "enabled").Bool(),
-		NotifyMethod: gjson.Get(string(body), "notify_method").String(),
-	}
+	m := parseZabbixInstanceBody(body, nil)
 
 	// 默认通知方式
 	if m.NotifyMethod == "" {
@@ -139,15 +185,16 @@ func CreateZabbixInstanceGin(c *gin.Context) {
 
 	// 创建租户
 	if err := model.CreateZabbixInstance(m); err != nil {
-		response.InternalError(c, err.Error())
+		response.BadRequest(c, err.Error())
 		return
 	}
 
-	// 创建成功后，自动测试连接并更新版本信息
-	// 查询刚创建的租户（获取ID）
-	_, _, _ = model.TestAndUpdateZabbixInstance(m.ID)
-
-	response.Success(c, nil)
+	created, _, testErr := model.TestAndUpdateZabbixInstance(m.ID)
+	if testErr != nil {
+		response.SuccessWithMessage(c, "配置已保存，但连接测试失败", gin.H{"instance": toTenantSafeResponse(created), "error": testErr.Error()})
+		return
+	}
+	response.SuccessWithMessage(c, "Zabbix 对接成功", toTenantSafeResponse(created))
 }
 
 // TestZabbixInstanceConfigGin 测试配置（创建前）
@@ -161,10 +208,52 @@ func TestZabbixInstanceConfigGin(c *gin.Context) {
 	user := gjson.Get(string(body), "user").String()
 	pass := gjson.Get(string(body), "pass").String()
 	token := gjson.Get(string(body), "token").String()
+	switch strings.ToLower(gjson.Get(string(body), "auth_type").String()) {
+	case "password":
+		token = ""
+	case "token":
+		user = ""
+		pass = ""
+	}
+	if id := gjson.Get(string(body), "id").Int(); id > 0 {
+		existing, lookupErr := model.GetZabbixInstanceByZID(int(id))
+		if lookupErr != nil {
+			if errors.Is(lookupErr, gorm.ErrRecordNotFound) {
+				response.NotFound(c, "Zabbix 实例不存在")
+			} else {
+				response.InternalError(c, lookupErr.Error())
+			}
+			return
+		}
+		storedPass, storedToken := model.DecryptInstanceCredentials(existing)
+		switch strings.ToLower(gjson.Get(string(body), "auth_type").String()) {
+		case "password":
+			if user == "" {
+				user = existing.User
+			}
+			if pass == "" {
+				pass = storedPass
+			}
+		case "token":
+			if token == "" {
+				token = storedToken
+			}
+		default:
+			if user == "" {
+				user = existing.User
+			}
+			if pass == "" {
+				pass = storedPass
+			}
+			if token == "" {
+				token = storedToken
+			}
+		}
+	}
 
 	ver, err := model.TestZabbixInstanceConfig(webURL, user, pass, token)
 	if err != nil {
-		response.InternalError(c, err.Error())
+		response.BadRequest(c, err.Error())
 		return
 	}
 
@@ -173,12 +262,18 @@ func TestZabbixInstanceConfigGin(c *gin.Context) {
 
 // TestZabbixInstanceGin 测试租户连接
 func TestZabbixInstanceGin(c *gin.Context) {
-	idStr := c.Param("id")
-	id, _ := strconv.ParseInt(idStr, 10, 64)
+	id, ok := zabbixInstanceID(c)
+	if !ok {
+		return
+	}
 
-	tenant, ver, err := model.TestAndUpdateZabbixInstance(int(id))
+	tenant, ver, err := model.TestAndUpdateZabbixInstance(id)
 	if err != nil {
-		response.InternalError(c, err.Error())
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			response.NotFound(c, "Zabbix 实例不存在")
+			return
+		}
+		response.BadRequest(c, err.Error())
 		return
 	}
 
@@ -191,8 +286,10 @@ func TestZabbixInstanceGin(c *gin.Context) {
 
 // UpdateZabbixInstanceGin 更新租户
 func UpdateZabbixInstanceGin(c *gin.Context) {
-	idStr := c.Param("id")
-	id, _ := strconv.ParseInt(idStr, 10, 64)
+	id, ok := zabbixInstanceID(c)
+	if !ok {
+		return
+	}
 
 	body, err := io.ReadAll(c.Request.Body)
 	if err != nil {
@@ -200,48 +297,59 @@ func UpdateZabbixInstanceGin(c *gin.Context) {
 		return
 	}
 
-	patch := &model.ZabbixInstance{
-		Instance:     gjson.Get(string(body), "tenant_id").String(),
-		Name:         gjson.Get(string(body), "name").String(),
-		URL:          gjson.Get(string(body), "url").String(),
-		User:         gjson.Get(string(body), "user").String(),
-		Pass:         gjson.Get(string(body), "pass").String(),
-		Token:        gjson.Get(string(body), "token").String(),
-		Enabled:      gjson.Get(string(body), "enabled").Bool(),
-		NotifyMethod: gjson.Get(string(body), "notify_method").String(),
+	existing, getErr := model.GetZabbixInstanceByZID(int(id))
+	if getErr != nil {
+		if errors.Is(getErr, gorm.ErrRecordNotFound) {
+			response.NotFound(c, "Zabbix 实例不存在")
+			return
+		}
+		response.InternalError(c, getErr.Error())
+		return
 	}
+	patch := parseZabbixInstanceBody(body, existing)
 
-	_, err = model.UpdateZabbixInstance(int(id), patch)
+	_, err = model.UpdateZabbixInstance(id, patch)
 	if err != nil {
-		response.InternalError(c, err.Error())
+		response.BadRequest(c, err.Error())
 		return
 	}
 
 	// 更新成功后，自动测试连接并更新版本信息
 	// 注意：UpdateZabbixInstance 内部已经处理了连接变更时重置版本
 	// 这里再次测试以获取最新版本
-	instance, _, _ := model.TestAndUpdateZabbixInstance(int(id))
+	instance, _, testErr := model.TestAndUpdateZabbixInstance(id)
+	if testErr != nil {
+		response.SuccessWithMessage(c, "配置已更新，但连接测试失败", gin.H{"instance": toTenantSafeResponse(instance), "error": testErr.Error()})
+		return
+	}
 
 	response.Success(c, toTenantSafeResponse(instance))
 }
 
 // DeleteZabbixInstanceGin 删除租户
 func DeleteZabbixInstanceGin(c *gin.Context) {
-	idStr := c.Param("id")
-	id, _ := strconv.ParseInt(idStr, 10, 64)
-
-	if err := model.DeleteZabbixInstance(int(id)); err != nil {
-		response.InternalError(c, err.Error())
+	id, ok := zabbixInstanceID(c)
+	if !ok {
 		return
 	}
 
+	if err := model.DeleteZabbixInstance(id); err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			response.NotFound(c, "Zabbix 实例不存在")
+		} else {
+			response.InternalError(c, err.Error())
+		}
+		return
+	}
 	response.Success(c, nil)
 }
 
 // EnableZabbixInstanceGin 启用/禁用租户
 func EnableZabbixInstanceGin(c *gin.Context) {
-	idStr := c.Param("id")
-	id, _ := strconv.ParseInt(idStr, 10, 64)
+	id, ok := zabbixInstanceID(c)
+	if !ok {
+		return
+	}
 
 	body, err := io.ReadAll(c.Request.Body)
 	if err != nil {
@@ -251,8 +359,12 @@ func EnableZabbixInstanceGin(c *gin.Context) {
 
 	enabled := gjson.Get(string(body), "enabled").Bool()
 
-	tenant, err := model.SetZabbixInstanceEnabled(int(id), enabled)
+	tenant, err := model.SetZabbixInstanceEnabled(id, enabled)
 	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			response.NotFound(c, "Zabbix 实例不存在")
+			return
+		}
 		response.InternalError(c, err.Error())
 		return
 	}

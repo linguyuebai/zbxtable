@@ -12,7 +12,9 @@ type ZabbixInstance struct {
 	User         string `gorm:"column:user;size:255" json:"user"`                              // Zabbix 用户名
 	Pass         string `gorm:"column:pass;size:255" json:"pass"`                              // Zabbix 密码
 	Token        string `gorm:"column:token;size:2048" json:"token"`                           // Zabbix API Token（优先）
-	WebhookToken string `gorm:"column:webhook_token;size:2048" json:"webhook_token"`           // Webhook 认证 Token（用于 MS-Agent/Webhook）
+	ClearPass    bool   `gorm:"-" json:"-"`
+	ClearToken   bool   `gorm:"-" json:"-"`
+	WebhookToken string `gorm:"column:webhook_token;size:2048" json:"webhook_token"` // Webhook 认证 Token（用于 MS-Agent/Webhook）
 
 	// 状态字段
 	Enabled bool `gorm:"column:enabled;default:true" json:"enabled"` // 是否启用

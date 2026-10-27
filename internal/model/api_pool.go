@@ -88,39 +88,36 @@ func (p *APIPool) GetOrCreateAPI(zid int) (*APIInstance, error) {
 	decryptedPass, decryptedToken := DecryptInstanceCredentials(instance)
 
 	// 创建 API 连接
-	webURL := strings.TrimRight(strings.TrimSpace(instance.URL), "/")
+	webURL := normalizeZabbixWebURL(instance.URL)
+	if webURL == "" {
+		return nil, errors.New("invalid Zabbix URL: use http(s)://host[:port][/path]")
+	}
 	apiURL := webURL + "/api_jsonrpc.php"
 
 	// 测试连接
-	transport := &http.Transport{
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-	}
-	client := http.Client{Transport: transport, Timeout: 5 * time.Second}
-	resp, err := client.Get(apiURL)
-	if err != nil {
-		return nil, fmt.Errorf("连接失败: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusPreconditionFailed {
-		return nil, fmt.Errorf("API 地址不正确，状态码: %d", resp.StatusCode)
-	}
-
 	// 创建 API 对象
 	api := zabbix.NewAPI(apiURL)
 	if strings.TrimSpace(decryptedToken) != "" {
-		api.SetAuth(strings.TrimSpace(decryptedToken))
+		if err := api.SetAuth(strings.TrimSpace(decryptedToken)); err != nil {
+			return nil, fmt.Errorf("Zabbix API token setup failed: %w", err)
+		}
+		if err := validateZabbixAPIReadAccess(api); err != nil {
+			return nil, fmt.Errorf("Zabbix API read permission check failed: %w", err)
+		}
 	} else if strings.TrimSpace(instance.User) != "" && strings.TrimSpace(decryptedPass) != "" {
 		_, err := api.Login(strings.TrimSpace(instance.User), strings.TrimSpace(decryptedPass))
 		if err != nil {
 			return nil, fmt.Errorf("登录失败: %w", err)
+		}
+		if err := validateZabbixAPIReadAccess(api); err != nil {
+			return nil, fmt.Errorf("Zabbix API read permission check failed: %w", err)
 		}
 	} else {
 		return nil, errors.New("未配置认证信息（Token 或 用户名/密码）")
 	}
 
 	// 获取版本信息
-	version, err := api.Version()
+	version, err := zabbixAPIVersion(api)
 	if err != nil {
 		return nil, fmt.Errorf("获取版本失败: %w", err)
 	}

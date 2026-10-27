@@ -32,7 +32,7 @@ Set-ExecutionPolicy -Scope Process Bypass
 
 * `GET /v1/inspection/policies/:id/results`：分页明细，可用 `status=warning` 筛选异常。
 * `GET /v1/inspection/policies/:id/summary`：汇总设备数、正常/异常数、CPU/内存/磁盘平均值、最近检查时间和常见异常原因；可用 RFC3339 的 `start`、`end` 限定周报/月报范围。
-* `POST /v1/inspection/export`：生成“巡检汇总”和“巡检明细”两个工作表，可直接用于汇报。
+* `POST /v1/inspection/export`：生成“巡检汇总”和“设备平均”工作表，可直接用于汇报；传 `include_details=true` 才会额外生成明细工作表。可传 `start`、`end`（RFC3339）生成周报或月报，默认按设备汇总周期平均值，不展示每天数值。
 
 定时任务默认每 10 分钟运行，可在“系统配置”调整 `inspection_enabled=1` 和 `inspection_cron`。异常会进入 ZbxTable 告警，并沿用已配置的通知渠道；同一主机相同巡检异常在 30 分钟内去重。
 
