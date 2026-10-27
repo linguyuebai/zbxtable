@@ -2,6 +2,7 @@ package logger
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -24,6 +25,14 @@ var (
 // maxSize: 单个日志文件最大大小（MB），0表示不限制
 // daily: 是否按天分割日志文件
 func InitLogger(logPath string, logLevel int, maxDays, maxLines, maxSize int, daily bool) error {
+	// Close a previous rotating writer before replacing it. This avoids leaked
+	// file handles during reconfiguration and is required on Windows where an
+	// open log file cannot be removed from a temporary test directory.
+	if Log != nil {
+		if closer, ok := Log.Out.(io.Closer); ok {
+			_ = closer.Close()
+		}
+	}
 	Log = logrus.New()
 
 	// 启用调用者信息报告（显示文件名和行号）

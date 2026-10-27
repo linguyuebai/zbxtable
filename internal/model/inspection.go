@@ -2,7 +2,7 @@ package model
 
 import (
 	"bytes"
-	"encoding/json"
+	stdjson "encoding/json"
 	"fmt"
 	"math"
 	"net"
@@ -34,28 +34,28 @@ func decodeInspectionConfig(p InspectionPolicy) (InspectionItemKeys, InspectionT
 	keys := DefaultInspectionItemKeys
 	thresholds := DefaultInspectionThresholds
 	if strings.TrimSpace(p.ItemKeys) != "" {
-		if err := json.Unmarshal([]byte(p.ItemKeys), &keys); err != nil {
+		if err := stdjson.Unmarshal([]byte(p.ItemKeys), &keys); err != nil {
 			return keys, thresholds, nil, nil, nil, fmt.Errorf("item_keys 格式错误: %w", err)
 		}
 	}
 	if strings.TrimSpace(p.Thresholds) != "" {
-		if err := json.Unmarshal([]byte(p.Thresholds), &thresholds); err != nil {
+		if err := stdjson.Unmarshal([]byte(p.Thresholds), &thresholds); err != nil {
 			return keys, thresholds, nil, nil, nil, fmt.Errorf("thresholds 格式错误: %w", err)
 		}
 	}
 	var allowed, accounts, patterns []string
 	if strings.TrimSpace(p.AllowedIPs) != "" {
-		if err := json.Unmarshal([]byte(p.AllowedIPs), &allowed); err != nil {
+		if err := stdjson.Unmarshal([]byte(p.AllowedIPs), &allowed); err != nil {
 			allowed = splitInspectionIDs(p.AllowedIPs)
 		}
 	}
 	if strings.TrimSpace(p.AllowedAccounts) != "" {
-		if err := json.Unmarshal([]byte(p.AllowedAccounts), &accounts); err != nil {
+		if err := stdjson.Unmarshal([]byte(p.AllowedAccounts), &accounts); err != nil {
 			accounts = splitInspectionIDs(p.AllowedAccounts)
 		}
 	}
 	if strings.TrimSpace(p.LogPatterns) != "" {
-		if err := json.Unmarshal([]byte(p.LogPatterns), &patterns); err != nil {
+		if err := stdjson.Unmarshal([]byte(p.LogPatterns), &patterns); err != nil {
 			patterns = splitInspectionIDs(p.LogPatterns)
 		}
 	}
@@ -80,6 +80,7 @@ func splitInspectionIDs(raw string) []string {
 }
 
 func parseInspectionFloat(value string) (float64, bool) {
+	value = strings.TrimSpace(value)
 	value = strings.TrimSpace(strings.TrimSuffix(value, "%"))
 	n, err := strconv.ParseFloat(value, 64)
 	return n, err == nil && !math.IsNaN(n) && !math.IsInf(n, 0)
@@ -120,12 +121,12 @@ func getInspectionItem(inst *APIInstance, hostID, key string) (*inspectionItemVa
 	if err != nil {
 		return nil, err
 	}
-	data, err := json.Marshal(rep.Result)
+	data, err := stdjson.Marshal(rep.Result)
 	if err != nil {
 		return nil, err
 	}
 	var items []inspectionItemValue
-	if err := json.Unmarshal(data, &items); err != nil {
+	if err := stdjson.Unmarshal(data, &items); err != nil {
 		return nil, err
 	}
 	if len(items) == 0 {
@@ -165,12 +166,12 @@ func inspectionLogs(inst *APIInstance, hostID, key string, minutes int) ([]inspe
 		if callErr != nil {
 			continue
 		}
-		data, marshalErr := json.Marshal(rep.Result)
+		data, marshalErr := stdjson.Marshal(rep.Result)
 		if marshalErr != nil {
 			continue
 		}
 		var candidate []inspectionLogEntry
-		if json.Unmarshal(data, &candidate) == nil && len(candidate) > len(entries) {
+		if stdjson.Unmarshal(data, &candidate) == nil && len(candidate) > len(entries) {
 			entries = candidate
 		}
 	}
