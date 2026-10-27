@@ -42,3 +42,21 @@ func TestEmbeddedFrontendJavaScriptIsServed(t *testing.T) {
 		t.Fatal("missing JavaScript asset incorrectly returned the SPA document")
 	}
 }
+
+func TestInstallPageIsServedByBrowserRoute(t *testing.T) {
+	router := InitRouter()
+	page := httptest.NewRecorder()
+	router.ServeHTTP(page, httptest.NewRequest("GET", "/install", nil))
+	if page.Code != 200 {
+		t.Fatalf("GET /install status = %d, want 200", page.Code)
+	}
+	if !strings.Contains(strings.ToLower(page.Body.String()), "<!doctype") {
+		t.Fatal("GET /install did not return the embedded HTML document")
+	}
+
+	status := httptest.NewRecorder()
+	router.ServeHTTP(status, httptest.NewRequest("GET", "/install/status", nil))
+	if status.Code != 200 {
+		t.Fatalf("GET /install/status status = %d, want 200", status.Code)
+	}
+}

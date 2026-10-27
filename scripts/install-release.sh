@@ -33,6 +33,12 @@ if [[ -t 1 ]]; then
 else
   C_GREEN=''; C_CYAN=''; C_YELLOW=''; C_RESET=''
 fi
+# Keep logging helpers before argument parsing and the interactive menu.  The
+# repair menu emits diagnostics before the temporary directory is created; a
+# late definition made `log` resolve as an external command on bash 5.
+log() { printf '%s[zbxtable] %s%s\n' "$C_CYAN" "$*" "$C_RESET"; }
+step() { STEP=$((STEP + 1)); printf '%s[%02d] %s%s\n' "$C_GREEN" "$STEP" "$*" "$C_RESET"; }
+warn() { printf '%s[zbxtable] WARNING: %s%s\n' "$C_YELLOW" "$*" "$C_RESET" >&2; }
 fail() { printf '\033[31m[zbxtable] ERROR: %s\033[0m\n' "$*" >&2; exit 1; }
 for arg in "$@"; do
   case "$arg" in
@@ -196,10 +202,6 @@ cleanup() {
   return "$exit_code"
 }
 trap cleanup EXIT
-
-log() { printf '%s[zbxtable] %s%s\n' "$C_CYAN" "$*" "$C_RESET"; }
-step() { STEP=$((STEP + 1)); printf '%s[%02d] %s%s\n' "$C_GREEN" "$STEP" "$*" "$C_RESET"; }
-warn() { printf '%s[zbxtable] WARNING: %s%s\n' "$C_YELLOW" "$*" "$C_RESET" >&2; }
 
 check_frontend_assets() {
   local base_url="$1" index_file="$TEMP_DIR/frontend-index.html" asset_path asset_file
