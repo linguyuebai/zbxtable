@@ -30,22 +30,14 @@ func GetGraphByHostID(c *gin.Context) {
 		return
 	}
 
-	var Start, End int64
-	timeLayout := "2006-01-02 15:04:05"
-	loc, _ := time.LoadLocation("Local")
-	if len(v.Period) == 0 || v.Period[0] == "" || v.Period[1] == "" {
-		tEnd := time.Now()
-		End = tEnd.Unix()
-		Start = tEnd.Add(-168 * time.Hour).Unix()
-	} else {
-		st, _ := time.ParseInLocation(timeLayout, v.Period[0], loc)
-		en, _ := time.ParseInLocation(timeLayout, v.Period[1], loc)
-		Start = st.Unix()
-		End = en.Unix()
+	start, end, periodErr := queryPeriod(v.Period, 168*time.Hour)
+	if periodErr != nil {
+		response.BadRequest(c, periodErr.Error())
+		return
 	}
 
 	id, _ := strconv.Atoi(v.Hostid)
-	vv, count, err := model.GetGraphByHostID(id, Start, End)
+	vv, count, err := model.GetGraphByHostID(id, start, end)
 	if err != nil {
 		GraphRes.Code = 500
 		GraphRes.Message = "获取图形数据错误"

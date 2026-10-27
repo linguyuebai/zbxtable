@@ -17,7 +17,7 @@ func TestEmbeddedFrontendJavaScriptIsServed(t *testing.T) {
 	}
 
 	script := regexp.MustCompile(`src=["']([^"']+\.js)["']`).FindStringSubmatch(root.Body.String())
-	if len(script) != 2 {
+	if len(script) < 2 {
 		t.Fatal("index.html does not contain a JavaScript entrypoint")
 	}
 	asset := httptest.NewRecorder()
@@ -31,5 +31,14 @@ func TestEmbeddedFrontendJavaScriptIsServed(t *testing.T) {
 	}
 	if len(body) == 0 || strings.Contains(strings.ToLower(string(body)), "<html") {
 		t.Fatalf("JavaScript asset returned empty content or HTML fallback")
+	}
+
+	missingAsset := httptest.NewRecorder()
+	router.ServeHTTP(missingAsset, httptest.NewRequest("GET", "/js/missing-asset.js", nil))
+	if missingAsset.Code != 404 {
+		t.Fatalf("missing JavaScript asset status = %d, want 404", missingAsset.Code)
+	}
+	if strings.Contains(strings.ToLower(missingAsset.Body.String()), "<html") {
+		t.Fatal("missing JavaScript asset incorrectly returned the SPA document")
 	}
 }
