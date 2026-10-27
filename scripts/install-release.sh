@@ -14,6 +14,10 @@ NO_START=0
 DOCKER=0
 DOCKER_INSTALL=0
 DOCKER_PORT="${ZBXTABLE_HTTP_PORT:-8088}"
+GO_IMAGE="${ZBXTABLE_GO_IMAGE:-golang:1.24-bookworm}"
+RUNTIME_IMAGE="${ZBXTABLE_RUNTIME_IMAGE:-debian:bookworm-slim}"
+GO_PROXY="${ZBXTABLE_GOPROXY:-https://goproxy.cn|https://proxy.golang.org|direct}"
+GO_DOWNLOAD_BASE="${ZBXTABLE_GO_DOWNLOAD_BASE:-https://go.dev/dl}"
 PORT_SET=0
 ENV_READY=0
 NO_FIREWALL=0
@@ -21,6 +25,8 @@ INTERACTIVE=0
 MENU_PURGE=0
 ASSUME_YES=0
 STEP=0
+SERVICE_WAS_ACTIVE=0
+INSTALL_SUCCEEDED=0
 if [[ -t 1 ]]; then
   C_GREEN=$'\033[32m'; C_CYAN=$'\033[36m'; C_YELLOW=$'\033[33m'; C_RESET=$'\033[0m'
 else
@@ -45,6 +51,10 @@ Usage: bash install-release.sh [options]
   --docker              Install and run with Docker instead of systemd
   --docker-install      Install Docker if it is missing (apt-based Linux)
   --port=PORT           Web/Docker port (default: 8088)
+  --go-image=IMAGE      Docker Go builder image (allow a registry mirror)
+  --runtime-image=IMAGE Docker runtime image (allow a registry mirror)
+  --go-proxy=URLS       Go module proxy chain for source builds
+  --go-download-base=URL Go archive mirror directory
   --no-firewall         Do not add the web port to an active firewall
   --menu                Show the interactive install/uninstall menu (default without options)
   --uninstall           Uninstall systemd service and ZbxTable container
@@ -66,6 +76,10 @@ EOF
     --docker) DOCKER=1 ;;
     --docker-install) DOCKER=1; DOCKER_INSTALL=1 ;;
     --port=*) DOCKER_PORT="${arg#*=}"; PORT_SET=1 ;;
+    --go-image=*) GO_IMAGE="${arg#*=}" ;;
+    --runtime-image=*) RUNTIME_IMAGE="${arg#*=}" ;;
+    --go-proxy=*) GO_PROXY="${arg#*=}" ;;
+    --go-download-base=*) GO_DOWNLOAD_BASE="${arg#*=}" ;;
     --no-firewall) NO_FIREWALL=1 ;;
     --menu) INTERACTIVE=1 ;;
     --uninstall) ACTION=uninstall ;;
@@ -115,6 +129,17 @@ if [[ "$#" == 0 || "$INTERACTIVE" == 1 ]]; then
     IFS= read -r MENU_PORT < /dev/tty || fail 'Could not read port.'
     DOCKER_PORT="${MENU_PORT:-$DOCKER_PORT}"
     PORT_SET=1
+    if [[ "$DOCKER" == 1 ]]; then
+      printf 'Go 构建镜像 [默认 %s；可填内网镜像地址]: ' "$GO_IMAGE" > /dev/tty
+      IFS= read -r MENU_GO_IMAGE < /dev/tty || fail 'Could not read Go builder image.'
+      GO_IMAGE="${MENU_GO_IMAGE:-$GO_IMAGE}"
+      printf '运行时镜像 [默认 %s；可填内网镜像地址]: ' "$RUNTIME_IMAGE" > /dev/tty
+      IFS= read -r MENU_RUNTIME_IMAGE < /dev/tty || fail 'Could not read runtime image.'
+      RUNTIME_IMAGE="${MENU_RUNTIME_IMAGE:-$RUNTIME_IMAGE}"
+      printf 'Go 模块代理 [默认 %s]: ' "$GO_PROXY" > /dev/tty
+      IFS= read -r MENU_GO_PROXY < /dev/tty || fail 'Could not read Go module proxy.'
+      GO_PROXY="${MENU_GO_PROXY:-$GO_PROXY}"
+    fi
   fi
 fi
 
@@ -130,10 +155,20 @@ fi
 
 [[ "$(id -u)" -eq 0 ]] || fail 'Run this installer as root (for example: curl ... | sudo bash -s -- ...).'
 [[ "$DOCKER_PORT" =~ ^[0-9]+$ ]] && (( DOCKER_PORT >= 1 && DOCKER_PORT <= 65535 )) || fail "Invalid port: $DOCKER_PORT"
+export ZBXTABLE_GOPROXY="$GO_PROXY"
+export ZBXTABLE_GO_DOWNLOAD_BASE="$GO_DOWNLOAD_BASE"
 
 command -v curl >/dev/null 2>&1 || { echo 'Required command not found: curl' >&2; exit 1; }
 TEMP_DIR="$(mktemp -d)"
-cleanup() { rm -rf "$TEMP_DIR"; }
+cleanup() {
+  local exit_code=$?
+  rm -rf "$TEMP_DIR"
+  if [[ "$SERVICE_WAS_ACTIVE" == 1 && "$INSTALL_SUCCEEDED" != 1 ]]; then
+    systemctl start zbxtable.service >/dev/null 2>&1 || true
+    printf '[zbxtable] WARNING: installation did not finish; attempted to restore the previously running service.\n' >&2
+  fi
+  return "$exit_code"
+}
 trap cleanup EXIT
 
 log() { printf '%s[zbxtable] %s%s\n' "$C_CYAN" "$*" "$C_RESET"; }
@@ -215,6 +250,7 @@ step 'Preparing the installation directory and preserving configuration'
 if [[ -e "$INSTALL_ROOT" && "$FORCE" != 1 ]]; then echo "Install directory exists: $INSTALL_ROOT (use --force)." >&2; exit 1; fi
 log "Installing to $INSTALL_ROOT"
 if command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet zbxtable.service; then
+  SERVICE_WAS_ACTIVE=1
   log 'Stopping existing zbxtable.service before replacement.'
   systemctl stop zbxtable.service
 fi
@@ -241,11 +277,16 @@ fi
 if [[ "$DOCKER" == 1 ]]; then
   step 'Installing and starting Docker container'
   docker_args=("--port=$DOCKER_PORT")
+  docker_args+=("--go-image=$GO_IMAGE" "--runtime-image=$RUNTIME_IMAGE" "--go-proxy=$GO_PROXY")
   [[ "$DOCKER_INSTALL" == 1 ]] && docker_args+=(--install-docker)
   bash "$INSTALL_ROOT/scripts/install-docker.sh" "${docker_args[@]}"
+  if command -v systemctl >/dev/null 2>&1 && systemctl is-enabled --quiet zbxtable.service 2>/dev/null; then
+    systemctl disable zbxtable.service >/dev/null 2>&1 || warn 'Could not disable the previous systemd installation.'
+  fi
   configure_firewall "$DOCKER_PORT"
   printf '\n%sZbxTable Docker installation complete%s\n' "$C_GREEN" "$C_RESET"
   printf '  Web:      http://%s:%s\n  Container: %s\n  Account:   admin\n  Password:  Zbxtable (first login; change it immediately)\n' "$(hostname -I 2>/dev/null | awk '{print $1}')" "$DOCKER_PORT" "${ZBXTABLE_DOCKER_CONTAINER:-zbxtable}"
+  INSTALL_SUCCEEDED=1
   exit 0
 fi
 if [[ "$SKIP_FRONTEND" != 1 && ! -s "$INSTALL_ROOT/api/v1/web/web/index.html" ]]; then
@@ -280,9 +321,11 @@ if [[ "$NO_START" != 1 && -d /run/systemd/system ]] && command -v systemctl >/de
     log 'Web interface health check passed.'
   fi
   configure_firewall "$HTTP_PORT"
+  INSTALL_SUCCEEDED=1
   printf '\n%sZbxTable installation complete%s\n' "$C_GREEN" "$C_RESET"
   printf '  Web:      http://%s:%s\n  Service:  zbxtable.service (enabled)\n  Account:  admin\n  Password: Zbxtable (first login; change it immediately)\n' "$(hostname -I 2>/dev/null | awk '{print $1}')" "$HTTP_PORT"
   log "Installation complete. Open http://127.0.0.1:$HTTP_PORT"
 else
+  INSTALL_SUCCEEDED=1
   log "Installation complete. Start with: bash $INSTALL_ROOT/scripts/run.sh"
 fi

@@ -2,8 +2,6 @@ module zbxtable
 
 go 1.24.0
 
-toolchain go1.24.3
-
 require (
 	github.com/360EntSecGroup-Skylar/excelize v1.4.1
 	github.com/canghai908/jwt-beego v0.0.0-20210814140549-930145f4313e
