@@ -12,6 +12,7 @@ SKIP_FRONTEND=0
 INSTALL_DEPS=0
 NO_START=0
 REPAIR=0
+UPDATE=0
 DOCKER=0
 DOCKER_INSTALL=0
 DOCKER_PORT="${ZBXTABLE_HTTP_PORT:-8088}"
@@ -112,13 +113,25 @@ fi
 
 if [[ "$#" == 0 || "$INTERACTIVE" == 1 ]]; then
   [[ -r /dev/tty && -w /dev/tty ]] || fail 'Interactive menu needs a terminal. Run with --help and pass install options directly.'
-  printf '\nZbxTable 安装管理器\n  1) 系统服务安装（systemd）\n  2) Docker 安装（缺少 Docker 时自动安装）\n  3) 修复当前安装（保留配置并使用最新 Release 重装）\n  4) 卸载 ZbxTable（系统服务和 Docker 容器）\n  5) 退出\n\n' > /dev/tty
-  printf '请选择 [1-5]: ' > /dev/tty
+  printf '\nZbxTable 安装管理器\n  1) 系统服务安装（systemd）\n  2) Docker 安装（缺少 Docker 时自动安装）\n  3) 更新当前安装（保留配置并升级到最新 Release）\n  4) 修复当前安装（保留配置并重新部署）\n  5) 卸载 ZbxTable（系统服务和 Docker 容器）\n  6) 退出\n\n' > /dev/tty
+  printf '请选择 [1-6]: ' > /dev/tty
   IFS= read -r MENU_CHOICE < /dev/tty || fail 'Could not read menu selection.'
   case "$MENU_CHOICE" in
     1) DOCKER=0; INSTALL_DEPS=1 ;;
     2) DOCKER=1; DOCKER_INSTALL=1 ;;
     3)
+      UPDATE=1
+      REPAIR=1
+      VERSION=latest
+      log 'Update mode will preserve configuration and deploy the latest Release.'
+      if command -v docker >/dev/null 2>&1 && docker container inspect "${ZBXTABLE_DOCKER_CONTAINER:-zbxtable}" >/dev/null 2>&1; then
+        DOCKER=1
+      else
+        DOCKER=0
+        INSTALL_DEPS=1
+      fi
+      ;;
+    4)
       REPAIR=1
       VERSION=latest
       if command -v docker >/dev/null 2>&1 && docker container inspect "${ZBXTABLE_DOCKER_CONTAINER:-zbxtable}" >/dev/null 2>&1; then
@@ -130,9 +143,9 @@ if [[ "$#" == 0 || "$INTERACTIVE" == 1 ]]; then
         log 'Repair mode will rebuild and replace the systemd application while preserving configuration.'
       fi
       ;;
-    4) ACTION=uninstall ;;
-    5) printf '已退出。\n' > /dev/tty; exit 0 ;;
-    *) fail 'Invalid selection. Choose 1, 2, 3, 4, or 5.' ;;
+    5) ACTION=uninstall ;;
+    6) printf '已退出。\n' > /dev/tty; exit 0 ;;
+    *) fail 'Invalid selection. Choose 1, 2, 3, 4, 5, or 6.' ;;
   esac
   if [[ "${ACTION:-}" == uninstall ]]; then
     printf '卸载选项：\n  1) 保留配置文件\n  2) 删除配置和程序文件\n请选择 [1-2]（默认 1）: ' > /dev/tty
