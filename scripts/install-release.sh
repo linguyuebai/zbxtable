@@ -257,9 +257,18 @@ configure_firewall() {
 if [[ "$INSTALL_DEPS" == 1 && "$DOCKER" != 1 ]]; then
   step 'Checking and preparing the Linux environment'
   BOOTSTRAP_URL="https://github.com/$REPOSITORY/releases/latest/download/bootstrap-linux.sh"
-  [[ "$VERSION" == latest ]] || BOOTSTRAP_URL="https://github.com/$REPOSITORY/releases/download/$VERSION/bootstrap-linux.sh"
+  if [[ "$VERSION" != latest ]]; then
+    BOOTSTRAP_URL="https://github.com/$REPOSITORY/releases/download/$VERSION/bootstrap-linux.sh"
+    SOURCE_BOOTSTRAP_URL="https://raw.githubusercontent.com/$REPOSITORY/$VERSION/scripts/bootstrap-linux.sh"
+  else
+    SOURCE_BOOTSTRAP_URL="https://raw.githubusercontent.com/$REPOSITORY/3.0/scripts/bootstrap-linux.sh"
+  fi
   log "Preparing Linux environment from $BOOTSTRAP_URL"
-  curl -fsSL "$BOOTSTRAP_URL" -o "$TEMP_DIR/bootstrap-linux.sh" || fail 'Unable to download bootstrap-linux.sh.'
+  if ! curl --connect-timeout 10 --max-time 60 -fsSL "$BOOTSTRAP_URL" -o "$TEMP_DIR/bootstrap-linux.sh"; then
+    warn 'bootstrap-linux.sh is missing from the Release assets; falling back to the repository source.'
+    curl --connect-timeout 10 --max-time 60 -fsSL "$SOURCE_BOOTSTRAP_URL" -o "$TEMP_DIR/bootstrap-linux.sh" || fail "Unable to download bootstrap-linux.sh from the Release or source URL: $SOURCE_BOOTSTRAP_URL"
+  fi
+  [[ -s "$TEMP_DIR/bootstrap-linux.sh" ]] || fail 'Downloaded bootstrap-linux.sh is empty.'
   chmod +x "$TEMP_DIR/bootstrap-linux.sh"
   bash "$TEMP_DIR/bootstrap-linux.sh"
   ENV_READY=1
