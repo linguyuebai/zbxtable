@@ -1,202 +1,100 @@
-package middleware
+package v1
 
 import (
-	"net/http"
-	"os"
+	"io"
+	"net/http/httptest"
+	"regexp"
 	"strings"
-
-	"zbxtable/internal/model"
-
-	jwtbeego "github.com/canghai908/jwt-beego"
-	"github.com/gin-gonic/gin"
-	"gopkg.in/ini.v1"
+	"testing"
 )
 
-// JWTAuthMiddleware JWT 认证中间件
-func JWTAuthMiddleware() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		tokenString := c.GetHeader("X-Token")
-		if tokenString == "" {
-			// 尝试从 Authorization header 获取
-			authHeader := c.GetHeader("Authorization")
-			if authHeader != "" && strings.HasPrefix(authHeader, "Bearer ") {
-				tokenString = strings.TrimPrefix(authHeader, "Bearer ")
-			}
-		}
+func TestEmbeddedFrontendJavaScriptIsServed(t *testing.T) {
+	router := InitRouter()
+	root := httptest.NewRecorder()
+	router.ServeHTTP(root, httptest.NewRequest("GET", "/", nil))
+	if root.Code != 200 {
+		t.Fatalf("GET / status = %d, want 200", root.Code)
+	}
+	if root.Header().Get("Cache-Control") == "" || !strings.Contains(root.Header().Get("Cache-Control"), "no-store") {
+		t.Fatalf("GET / Cache-Control = %q, want no-store", root.Header().Get("Cache-Control"))
+	}
 
-		if tokenString == "" {
-			c.JSON(http.StatusUnauthorized, gin.H{
-				"code":    50014,
-				"message": "token过期或非法的token",
-				"data": gin.H{
-					"items": "",
-					"total": 0,
-				},
-			})
-			c.Abort()
-			return
-		}
+	script := regexp.MustCompile(`src=["']([^"']+\.js)["']`).FindStringSubmatch(root.Body.String())
+	if len(script) < 2 {
+		t.Fatal("index.html does not contain a JavaScript entrypoint")
+	}
+	asset := httptest.NewRecorder()
+	router.ServeHTTP(asset, httptest.NewRequest("GET", script[1], nil))
+	if asset.Code != 200 {
+		t.Fatalf("GET %s status = %d, want 200", script[1], asset.Code)
+	}
+	body, err := io.ReadAll(asset.Body)
+	if err != nil {
+		t.Fatalf("read JavaScript response: %v", err)
+	}
+	if len(body) == 0 || strings.Contains(strings.ToLower(string(body)), "<html") {
+		t.Fatalf("JavaScript asset returned empty content or HTML fallback")
+	}
 
-		et := jwtbeego.EasyToken{}
-		valid, username, _ := et.ValidateToken(tokenString)
-		if !valid {
-			c.JSON(http.StatusUnauthorized, gin.H{
-				"code":    50014,
-				"message": "token过期或非法的token",
-				"data": gin.H{
-					"items": "",
-					"total": 0,
-				},
-			})
-			c.Abort()
-			return
-		}
-
-		// 将用户名存储到上下文中
-		c.Set("username", username)
-		c.Next()
+	missingAsset := httptest.NewRecorder()
+	router.ServeHTTP(missingAsset, httptest.NewRequest("GET", "/js/missing-asset.js", nil))
+	if missingAsset.Code != 404 {
+		t.Fatalf("missing JavaScript asset status = %d, want 404", missingAsset.Code)
+	}
+	if strings.Contains(strings.ToLower(missingAsset.Body.String()), "<html") {
+		t.Fatal("missing JavaScript asset incorrectly returned the SPA document")
 	}
 }
 
-// DemoModeMiddleware 演示模式中间件
-// 需求：演示模式配置在配置文件中，不额外创建演示账号；仍使用 admin 登录
-// 行为：开启 demo_mode=true 时，拦截所有“可能修改数据”的请求（非 GET），从而保护演示环境数据
-func DemoModeMiddleware() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		// 优先从 app.conf / .env 读取（model.GetConfKey 会优先读取 .env，其次 app.conf）
-		demoMode := model.GetConfKey("demo_mode")
-		if demoMode == "" {
-			// 如果配置文件没配置，则回退到数据库配置（可选）
-			demoMode = model.GetConfigValueByKey("demo_mode", "false")
-		}
-
-		// 统一转换成 bool 语义（仅识别 "true"）
-		isDemo := strings.EqualFold(strings.TrimSpace(demoMode), "true")
-		if !isDemo {
-			c.Next()
-			return
-		}
-
-		// 允许 GET 请求（只读）
-		if c.Request.Method == http.MethodGet {
-			c.Next()
-			return
-		}
-
-		// 允许演示环境的必要写入：登录/注销、告警接收/webhook
-		path := c.Request.URL.Path
-		if strings.HasPrefix(path, "/v1/login") ||
-			strings.HasPrefix(path, "/v1/logout") ||
-			strings.HasPrefix(path, "/v1/receive") ||
-			strings.HasPrefix(path, "/v1/webhook") {
-			c.Next()
-			return
-		}
-
-		c.JSON(http.StatusForbidden, gin.H{
-			"code":    403,
-			"message": "演示模式已开启：禁止修改数据",
-		})
-		c.Abort()
+func TestServiceWorkerIsServedWithoutBrowserCache(t *testing.T) {
+	router := InitRouter()
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, httptest.NewRequest("GET", "/service-worker.js", nil))
+	if response.Code != 200 {
+		t.Fatalf("GET /service-worker.js status = %d, want 200", response.Code)
+	}
+	if response.Header().Get("Cache-Control") == "" || !strings.Contains(response.Header().Get("Cache-Control"), "no-store") {
+		t.Fatalf("service worker Cache-Control = %q, want no-store", response.Header().Get("Cache-Control"))
 	}
 }
 
-// CheckInstallStatusMiddleware 检查安装状态中间件
-// 如果未安装，重定向到安装页面（除了安装相关的路由）
-// 注意：只在配置文件存在但配置不完整时才跳转，避免后台服务未启动时误判
-func CheckInstallStatusMiddleware() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		// 安装相关的路由不需要检查
-		if strings.HasPrefix(c.Request.URL.Path, "/install") {
-			c.Next()
-			return
-		}
+func TestInstallPageIsServedByBrowserRoute(t *testing.T) {
+	router := InitRouter()
+	page := httptest.NewRecorder()
+	router.ServeHTTP(page, httptest.NewRequest("GET", "/install", nil))
+	if page.Code != 200 {
+		t.Fatalf("GET /install status = %d, want 200", page.Code)
+	}
+	if !strings.Contains(strings.ToLower(page.Body.String()), "<!doctype") {
+		t.Fatal("GET /install did not return the embedded HTML document")
+	}
 
-		// 检查安装状态
-		confPath := "./config/app.conf"
-		// The browser may call /v1/login while the first-run wizard is open.
-		// Stop that request before handlers touch model.DB (which is nil until
-		// database initialization), and tell the frontend to continue at /install.
-		if _, statErr := os.Stat(confPath); statErr != nil {
-			c.JSON(http.StatusServiceUnavailable, gin.H{
-				"code":     503,
-				"message":  "服务暂时不可用，请先完成安装配置",
-				"redirect": "/install",
-			})
-			c.Abort()
-			return
-		}
-		_, err := os.Stat(confPath)
-		if err != nil {
-			// 配置文件不存在：可能是首次安装或后台服务未启动
-			// 只对 API 请求返回错误，不跳转（避免后台未启动时误跳转）
-			if c.Request.Header.Get("Accept") != "" && strings.Contains(c.Request.Header.Get("Accept"), "application/json") {
-				c.JSON(http.StatusServiceUnavailable, gin.H{
-					"code":    503,
-					"message": "服务暂时不可用，请检查后台服务是否启动",
-				})
-				c.Abort()
-				return
-			}
-			// 对于页面请求，让前端自行处理（不强制跳转）
-			c.Next()
-			return
-		}
+	status := httptest.NewRecorder()
+	router.ServeHTTP(status, httptest.NewRequest("GET", "/install/status", nil))
+	if status.Code != 200 {
+		t.Fatalf("GET /install/status status = %d, want 200", status.Code)
+	}
+}
 
-		cfg, err := ini.Load(confPath)
-		if err != nil {
-			// 配置文件存在但无法解析：配置文件损坏
-			if c.Request.Header.Get("Accept") != "" && strings.Contains(c.Request.Header.Get("Accept"), "application/json") {
-				c.JSON(http.StatusOK, gin.H{
-					"code":     500,
-					"message":  "配置文件损坏，请重新安装",
-					"redirect": "/install",
-				})
-			} else {
-				c.Redirect(http.StatusFound, "/install")
-			}
-			c.Abort()
-			return
-		}
+func TestManagerInfoEndpointIsRegisteredAndProtected(t *testing.T) {
+	router := InitRouter()
+	response := httptest.NewRecorder()
+	request := httptest.NewRequest("POST", "/v1/manager/info", strings.NewReader(`{}`))
+	router.ServeHTTP(response, request)
+	if response.Code != 503 {
+		t.Fatalf("POST /v1/manager/info HTTP status = %d, want 503 before installation", response.Code)
+	}
+	if !strings.Contains(response.Body.String(), `"redirect":"/install"`) {
+		t.Fatalf("POST /v1/manager/info response = %s, want install redirect", response.Body.String())
+	}
+}
 
-		dbtype := cfg.Section("").Key("dbtype").String()
-		dbname := cfg.Section("").Key("dbname").String()
-
-		// 检查数据库类型和数据库名
-		if dbtype == "" || dbname == "" {
-			// 配置文件存在但配置不完整：需要完成安装
-			if c.Request.Header.Get("Accept") != "" && strings.Contains(c.Request.Header.Get("Accept"), "application/json") {
-				c.JSON(http.StatusOK, gin.H{
-					"code":     500,
-					"message":  "系统未安装，请先完成安装",
-					"redirect": "/install",
-				})
-			} else {
-				c.Redirect(http.StatusFound, "/install")
-			}
-			c.Abort()
-			return
-		}
-
-		// 对于非 SQLite 数据库，需要检查 dbhost
-		if dbtype != "sqlite" {
-			dbhost := cfg.Section("").Key("dbhost").String()
-			if dbhost == "" {
-				if c.Request.Header.Get("Accept") != "" && strings.Contains(c.Request.Header.Get("Accept"), "application/json") {
-					c.JSON(http.StatusOK, gin.H{
-						"code":     500,
-						"message":  "系统未安装，请先完成安装",
-						"redirect": "/install",
-					})
-				} else {
-					c.Redirect(http.StatusFound, "/install")
-				}
-				c.Abort()
-				return
-			}
-		}
-
-		// 已安装，继续
-		c.Next()
+func TestLoginEndpointIsRegistered(t *testing.T) {
+	router := InitRouter()
+	response := httptest.NewRecorder()
+	request := httptest.NewRequest("POST", "/v1/login", strings.NewReader(`{invalid-json`))
+	router.ServeHTTP(response, request)
+	if response.Code != 503 || !strings.Contains(response.Body.String(), `"redirect":"/install"`) {
+		t.Fatalf("POST /v1/login before installation returned HTTP %d: %s", response.Code, response.Body.String())
 	}
 }
