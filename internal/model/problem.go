@@ -1,6 +1,7 @@
 package model
 
 import (
+	"fmt"
 	"zbxtable/pkg/logger"
 )
 
@@ -27,12 +28,33 @@ type Problems struct {
 
 // GetProblems get porblems
 func GetProblems() ([]Problems, int64, error) {
+	instances, err := GetAllEnabledAPIInstances()
+	if err != nil {
+		logger.Log.Error(err)
+		return []Problems{}, 0, err
+	}
+	allProblems := make([]Problems, 0)
+	for _, inst := range instances {
+		problems, _, callErr := GetProblemsFromInstance(inst)
+		if callErr != nil {
+			logger.Log.Errorf("从实例 %s 获取未恢复告警失败: %v", inst.Name, callErr)
+			continue
+		}
+		allProblems = append(allProblems, problems...)
+	}
+	return allProblems, int64(len(allProblems)), nil
+}
+
+// GetProblemsFromInstance returns active problems from the selected Zabbix instance.
+func GetProblemsFromInstance(inst *APIInstance) ([]Problems, int64, error) {
+	if inst == nil || inst.API == nil {
+		return []Problems{}, 0, fmt.Errorf("Zabbix instance API is unavailable")
+	}
 	par := []string{"eventid"}
-	problems, err := API.CallWithError("problem.get", Params{"output": "extend",
+	problems, err := inst.API.CallWithError("problem.get", Params{"output": "extend",
 		"sortfield": par,
 		"sortorder": "DESC"})
 	if err != nil {
-		logger.Log.Error(err)
 		return []Problems{}, 0, err
 	}
 	hba, err := json.Marshal(problems.Result)

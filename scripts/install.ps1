@@ -30,10 +30,10 @@ if (-not (Test-Path $ConfigFile) -or $env:ZBXTABLE_FORCE_CONFIG -eq '1') {
   $dbType = if ($env:ZBXTABLE_DB_TYPE) { $env:ZBXTABLE_DB_TYPE } else { Ask 'Database type' 'mysql' }
   $dbHost = if ($env:ZBXTABLE_DB_HOST) { $env:ZBXTABLE_DB_HOST } else { Ask 'Zabbix database host' '127.0.0.1' }
   $dbPort = if ($env:ZBXTABLE_DB_PORT) { $env:ZBXTABLE_DB_PORT } else { Ask 'Database port' '3306' }
-  $dbName = if ($env:ZBXTABLE_DB_NAME) { $env:ZBXTABLE_DB_NAME } else { Ask 'Zabbix database name' 'zabbix' }
-  $dbUser = if ($env:ZBXTABLE_DB_USER) { $env:ZBXTABLE_DB_USER } else { Ask 'Database user' 'zabbix' }
+  $dbName = if ($env:ZBXTABLE_DB_NAME) { $env:ZBXTABLE_DB_NAME } else { Ask 'ZbxTable database name' 'zbxtable' }
+  $dbUser = if ($env:ZBXTABLE_DB_USER) { $env:ZBXTABLE_DB_USER } else { Ask 'Database user' 'zbxtable' }
   $dbPass = if ($env:ZBXTABLE_DB_PASS) { $env:ZBXTABLE_DB_PASS } else { Read-Host 'Database password' }
-  $httpPort = if ($env:ZBXTABLE_HTTP_PORT) { $env:ZBXTABLE_HTTP_PORT } else { Ask 'HTTP port' '8088' }
+  $httpPort = if ($env:ZBXTABLE_HTTP_PORT) { $env:ZBXTABLE_HTTP_PORT } else { Ask 'HTTP port' '8089' }
   $runMode = if ($env:ZBXTABLE_RUN_MODE) { $env:ZBXTABLE_RUN_MODE } else { Ask 'Run mode' 'prod' }
 
   Test-Port $dbHost ([int]$dbPort) 'Database'
@@ -60,7 +60,7 @@ dbport=$dbPort
 } else {
   Write-Host "Existing configuration found; keeping $ConfigFile"
   $httpPort = ((Get-Content $ConfigFile | Where-Object { $_ -match '^httpport=' }) -replace '^httpport=', '')
-  if ([string]::IsNullOrWhiteSpace($httpPort)) { $httpPort = '8088' }
+  if ([string]::IsNullOrWhiteSpace($httpPort)) { $httpPort = '8089' }
 }
 
 $httpProbe = Get-NetTCPConnection -LocalPort ([int]$httpPort) -State Listen -ErrorAction SilentlyContinue
@@ -75,4 +75,4 @@ try {
   go mod download
   go build -trimpath -ldflags '-s -w' -o (Join-Path $BuildDir 'zbxtable.exe') ./main.go
 } finally { Pop-Location }
-Write-Host 'Installation complete. Run scripts\run.ps1 and open http://127.0.0.1:8088.'
+Write-Host 'Installation complete. Run scripts\run.ps1 and open http://127.0.0.1:8089.'

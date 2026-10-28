@@ -11,6 +11,7 @@ import (
 	"zbxtable/pkg/response"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 type inspectionPolicyRequest struct {
@@ -82,7 +83,19 @@ func inspectionPolicyFromRequest(req inspectionPolicyRequest, id int) (model.Ins
 	if enabled == "" {
 		enabled = "1"
 	}
+	if enabled != "0" && enabled != "1" {
+		return model.InspectionPolicy{}, fmt.Errorf("enabled must be 0 or 1")
+	}
 	return model.InspectionPolicy{ID: id, Name: strings.TrimSpace(req.Name), ZID: req.ZID, HostIDs: hostIDs, GroupIDs: groupIDs, ItemKeys: itemKeys, Thresholds: thresholds, AllowedIPs: allowedIPs, AllowedAccounts: allowedAccounts, LogPatterns: patterns, Enabled: enabled}, nil
+}
+
+func inspectionPolicyID(c *gin.Context) (int, bool) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil || id <= 0 {
+		response.BadRequest(c, "invalid inspection policy ID")
+		return 0, false
+	}
+	return id, true
 }
 
 // GetInspectionPolicies lists configurable inspection policies.
@@ -116,7 +129,10 @@ func GetInspectionPolicies(c *gin.Context) {
 }
 
 func GetInspectionPolicy(c *gin.Context) {
-	id, _ := strconv.Atoi(c.Param("id"))
+	id, ok := inspectionPolicyID(c)
+	if !ok {
+		return
+	}
 	var policy model.InspectionPolicy
 	if err := model.DB.First(&policy, id).Error; err != nil {
 		response.NotFound(c, "巡检策略不存在")
@@ -148,7 +164,10 @@ func CreateInspectionPolicy(c *gin.Context) {
 }
 
 func UpdateInspectionPolicy(c *gin.Context) {
-	id, _ := strconv.Atoi(c.Param("id"))
+	id, ok := inspectionPolicyID(c)
+	if !ok {
+		return
+	}
 	var req inspectionPolicyRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, "请求参数格式错误: "+err.Error())
@@ -159,24 +178,64 @@ func UpdateInspectionPolicy(c *gin.Context) {
 		response.BadRequest(c, err.Error())
 		return
 	}
-	if err := model.DB.Model(&model.InspectionPolicy{}).Where("id = ?", id).Updates(map[string]interface{}{
+	update := model.DB.Model(&model.InspectionPolicy{}).Where("id = ?", id).Updates(map[string]interface{}{
 		"name": policy.Name, "zid": policy.ZID, "host_ids": policy.HostIDs, "group_ids": policy.GroupIDs,
 		"item_keys": policy.ItemKeys, "thresholds": policy.Thresholds, "allowed_ips": policy.AllowedIPs,
 		"allowed_accounts": policy.AllowedAccounts, "log_patterns": policy.LogPatterns, "enabled": policy.Enabled, "updated_at": time.Now(),
-	}).Error; err != nil {
-		response.DatabaseError(c, err.Error())
+	})
+	if update.Error != nil {
+		response.DatabaseError(c, update.Error.Error())
 		return
+	}
+	if update.RowsAffected == 0 {
+		var existing model.InspectionPolicy
+		if err := model.DB.First(&existing, id).Error; err != nil {
+			response.NotFound(c, "inspection policy not found")
+			return
+		}
 	}
 	response.SuccessWithMessage(c, "保存成功", policy)
 }
 
 func DeleteInspectionPolicy(c *gin.Context) {
-	id, _ := strconv.Atoi(c.Param("id"))
-	if err := model.DB.Delete(&model.InspectionPolicy{}, id).Error; err != nil {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil || id <= 0 {
+		response.BadRequest(c, "无效的巡检策略 ID")
+		return
+	}
+	var policy model.InspectionPolicy
+	if err := model.DB.First(&policy, id).Error; err != nil {
+		response.NotFound(c, "巡检策略不存在")
+		return
+	}
+	err = model.DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("policy_id = ?", id).Delete(&model.InspectionResult{}).Error; err != nil {
+			return err
+		}
+		return tx.Delete(&policy).Error
+	})
+	if err != nil {
 		response.DatabaseError(c, err.Error())
 		return
 	}
 	response.SuccessWithMessage(c, "删除成功", nil)
+}
+
+// DeleteInspectionResults removes persisted results for a policy without
+// removing the policy itself.  This is useful when a weekly/monthly report
+// has been exported and the old samples should be cleared from the UI.
+func DeleteInspectionResults(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil || id <= 0 {
+		response.BadRequest(c, "无效的巡检策略 ID")
+		return
+	}
+	result := model.DB.Where("policy_id = ?", id).Delete(&model.InspectionResult{})
+	if result.Error != nil {
+		response.DatabaseError(c, result.Error.Error())
+		return
+	}
+	response.SuccessWithMessage(c, "巡检记录已删除", gin.H{"deleted": result.RowsAffected})
 }
 
 func RunInspection(c *gin.Context) {
@@ -196,7 +255,10 @@ func RunInspection(c *gin.Context) {
 }
 
 func GetInspectionResults(c *gin.Context) {
-	policyID, _ := strconv.Atoi(c.Param("id"))
+	policyID, ok := inspectionPolicyID(c)
+	if !ok {
+		return
+	}
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "50"))
 	total, rows, err := model.GetInspectionResults(policyID, page, limit, c.Query("status"))
@@ -211,7 +273,10 @@ func GetInspectionResults(c *gin.Context) {
 // Optional start/end query values are RFC3339 timestamps. The aggregation is
 // done in Go so it behaves identically on MySQL, MariaDB and PostgreSQL.
 func GetInspectionSummary(c *gin.Context) {
-	policyID, _ := strconv.Atoi(c.Param("id"))
+	policyID, ok := inspectionPolicyID(c)
+	if !ok {
+		return
+	}
 	var start, end time.Time
 	var err error
 	if raw := c.Query("start"); raw != "" {
@@ -227,6 +292,10 @@ func GetInspectionSummary(c *gin.Context) {
 			response.BadRequest(c, "end 必须是 RFC3339 时间")
 			return
 		}
+	}
+	if !start.IsZero() && !end.IsZero() && end.Before(start) {
+		response.BadRequest(c, "end 必须晚于或等于 start")
+		return
 	}
 	summary, err := model.GetInspectionSummary(policyID, start, end)
 	if err != nil {

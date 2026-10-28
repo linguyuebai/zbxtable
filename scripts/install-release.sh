@@ -15,7 +15,7 @@ REPAIR=0
 UPDATE=0
 DOCKER=0
 DOCKER_INSTALL=0
-DOCKER_PORT="${ZBXTABLE_HTTP_PORT:-8088}"
+DOCKER_PORT="${ZBXTABLE_HTTP_PORT:-8089}"
 GO_IMAGE="${ZBXTABLE_GO_IMAGE:-golang:1.24-bookworm}"
 RUNTIME_IMAGE="${ZBXTABLE_RUNTIME_IMAGE:-debian:bookworm-slim}"
 GO_PROXY="${ZBXTABLE_GOPROXY:-https://goproxy.cn|https://proxy.golang.org|direct}"
@@ -58,7 +58,7 @@ Usage: bash install-release.sh [options]
   --no-start            Install but do not start the systemd service
   --docker              Install and run with Docker instead of systemd
   --docker-install      Install Docker if it is missing (apt-based Linux)
-  --port=PORT           Web/Docker port (default: 8088)
+  --port=PORT           Web/Docker port (default: 8089)
   --go-image=IMAGE      Docker Go builder image (allow a registry mirror)
   --runtime-image=IMAGE Docker runtime image (allow a registry mirror)
   --go-proxy=URLS       Go module proxy chain for source builds
@@ -257,17 +257,34 @@ configure_firewall() {
 if [[ "$INSTALL_DEPS" == 1 && "$DOCKER" != 1 ]]; then
   step 'Checking and preparing the Linux environment'
   BOOTSTRAP_URL="https://github.com/$REPOSITORY/releases/latest/download/bootstrap-linux.sh"
+  BOOTSTRAP_SOURCES=()
   if [[ "$VERSION" != latest ]]; then
     BOOTSTRAP_URL="https://github.com/$REPOSITORY/releases/download/$VERSION/bootstrap-linux.sh"
-    SOURCE_BOOTSTRAP_URL="https://raw.githubusercontent.com/$REPOSITORY/$VERSION/scripts/bootstrap-linux.sh"
+    BOOTSTRAP_SOURCES+=("https://raw.githubusercontent.com/$REPOSITORY/$VERSION/scripts/bootstrap-linux.sh")
   else
-    SOURCE_BOOTSTRAP_URL="https://raw.githubusercontent.com/$REPOSITORY/3.0/scripts/bootstrap-linux.sh"
+    # bootstrap-linux.sh is not guaranteed to be uploaded as a release asset.
+    # Try the repository's common branch names after the asset, without making
+    # a missing `latest/download` asset look like an unrecoverable failure.
+    BOOTSTRAP_SOURCES+=(
+      "https://raw.githubusercontent.com/$REPOSITORY/main/scripts/bootstrap-linux.sh"
+      "https://raw.githubusercontent.com/$REPOSITORY/3.0/scripts/bootstrap-linux.sh"
+      "https://raw.githubusercontent.com/$REPOSITORY/master/scripts/bootstrap-linux.sh"
+    )
   fi
   log "Preparing Linux environment from $BOOTSTRAP_URL"
-  if ! curl --connect-timeout 10 --max-time 60 -fsSL "$BOOTSTRAP_URL" -o "$TEMP_DIR/bootstrap-linux.sh"; then
-    warn 'bootstrap-linux.sh is missing from the Release assets; falling back to the repository source.'
-    curl --connect-timeout 10 --max-time 60 -fsSL "$SOURCE_BOOTSTRAP_URL" -o "$TEMP_DIR/bootstrap-linux.sh" || fail "Unable to download bootstrap-linux.sh from the Release or source URL: $SOURCE_BOOTSTRAP_URL"
+  bootstrap_ok=0
+  if curl --connect-timeout 10 --max-time 60 -fsSL "$BOOTSTRAP_URL" -o "$TEMP_DIR/bootstrap-linux.sh"; then
+    bootstrap_ok=1
+  else
+    warn 'bootstrap-linux.sh is not present in the release asset; trying repository source.'
+    for source_url in "${BOOTSTRAP_SOURCES[@]}"; do
+      if curl --connect-timeout 10 --max-time 60 -fsSL "$source_url" -o "$TEMP_DIR/bootstrap-linux.sh"; then
+        bootstrap_ok=1
+        break
+      fi
+    done
   fi
+  [[ "$bootstrap_ok" == 1 ]] || fail 'Unable to download bootstrap-linux.sh. Install dependencies manually or provide a reachable repository mirror.'
   [[ -s "$TEMP_DIR/bootstrap-linux.sh" ]] || fail 'Downloaded bootstrap-linux.sh is empty.'
   chmod +x "$TEMP_DIR/bootstrap-linux.sh"
   bash "$TEMP_DIR/bootstrap-linux.sh"
@@ -343,9 +360,19 @@ if [[ "$PORT_SET" == 1 && "$DOCKER" != 1 ]]; then
   fi
   log "Configured Web port: $DOCKER_PORT"
 fi
+if [[ "$DOCKER" == 1 && "$SKIP_FRONTEND" != 1 && ! -s "$INSTALL_ROOT/api/v1/web/web/index.html" ]]; then
+  step 'Preparing the embedded frontend required by the Docker image'
+  export ZBXTABLE_NEED_FRONTEND_BUILD=1
+  export ZBXTABLE_SKIP_GO_INSTALL=1
+  bash "$INSTALL_ROOT/scripts/bootstrap-linux.sh"
+  unset ZBXTABLE_NEED_FRONTEND_BUILD
+  unset ZBXTABLE_SKIP_GO_INSTALL
+  bash "$INSTALL_ROOT/scripts/prepare-frontend.sh"
+  [[ -s "$INSTALL_ROOT/api/v1/web/web/index.html" ]] || fail 'Frontend preparation completed without api/v1/web/web/index.html.'
+fi
 if [[ "$DOCKER" == 1 ]]; then
   if [[ "$REPAIR" == 1 && "$PORT_SET" != 1 ]] && command -v docker >/dev/null 2>&1; then
-    detected_port="$(docker port "${ZBXTABLE_DOCKER_CONTAINER:-zbxtable}" 8088/tcp 2>/dev/null | sed -n 's/.*:\([0-9][0-9]*\)$/\1/p' | head -n 1)"
+    detected_port="$(docker port "${ZBXTABLE_DOCKER_CONTAINER:-zbxtable}" 8089/tcp 2>/dev/null | sed -n 's/.*:\([0-9][0-9]*\)$/\1/p' | head -n 1)"
     if [[ "$detected_port" =~ ^[0-9]+$ ]]; then
       DOCKER_PORT="$detected_port"
       log "Detected existing Docker Web port: $DOCKER_PORT"
@@ -386,7 +413,7 @@ if [[ "$NO_START" != 1 && -d /run/systemd/system ]] && command -v systemctl >/de
   fi
   systemctl --no-pager --full status zbxtable.service
   HTTP_PORT="$(sed -n 's/^httpport=//p' "$RUNTIME_ROOT/config/app.conf" | head -n 1)"
-  HTTP_PORT="${HTTP_PORT:-8088}"
+  HTTP_PORT="${HTTP_PORT:-8089}"
   if command -v curl >/dev/null 2>&1; then
     healthy=0
     for attempt in $(seq 1 30); do

@@ -138,7 +138,7 @@ func GetAllGroupsList() ([]HostTree, int64, error) {
 func GetAllGroupsListFromInstance(id string) ([]HostGroupList, error) {
 	// 如果没有指定实例ID，使用全局API
 	var list []HostGroupList
-	zid, err := strconv.Atoi(id)
+	zid, err := ResolveZID(id)
 	if err != nil {
 		return list, err
 	}
@@ -218,7 +218,7 @@ func GetHostsByGroupID(GroupID string) ([]HostGroupBYGroupID, error) {
 }
 
 func GetHostsByGroupIDFromInstance(zidStr, groupID string) ([]Hosts, error) {
-	zid, err := strconv.Atoi(zidStr)
+	zid, err := ResolveZID(zidStr)
 	if err != nil {
 		return []Hosts{}, err
 	}

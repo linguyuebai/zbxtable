@@ -2,7 +2,6 @@ package model
 
 import (
 	"fmt"
-	"strconv"
 	"strings"
 	"time"
 	"zbxtable/pkg/logger"
@@ -87,7 +86,7 @@ func GetAllItemByHostID(hostid string) (item []Item, count int64, err error) {
 func GetAllItemByHostIDFromInstance(zid, hostid string) (item []Items, count int64, err error) {
 	// 获取实例API
 	var list []Items
-	id, err := strconv.Atoi(zid)
+	id, err := ResolveZID(zid)
 	if err != nil {
 		return list, 0, err
 	}
@@ -192,7 +191,7 @@ func GetAllTrafficItemByHostID(hostid string) (item []interface{}, count int64, 
 // GetAllTrafficItemByHostIDFromInstance 从指定实例根据hostid获取流量监控项
 func GetAllTrafficItemByHostIDFromInstance(zid, hostid string) (item []interface{}, count int64, err error) {
 	// 获取实例API
-	id, err := strconv.Atoi(zid)
+	id, err := ResolveZID(zid)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -351,7 +350,7 @@ func GetReceiveTrafficeItemByHostID(hostid string) (item []interface{}, count in
 // GetReceiveTrafficeItemByHostIDFromInstance 从指定实例根据hostid获取入流量监控项
 func GetReceiveTrafficeItemByHostIDFromInstance(zid, hostid string) (item []interface{}, count int64, err error) {
 	// 获取实例API
-	id, err := strconv.Atoi(zid)
+	id, err := ResolveZID(zid)
 	if err != nil {
 		return nil, 0, err
 	}

@@ -14,8 +14,8 @@ if [[ "${ZBXTABLE_SKIP_FRONTEND:-0}" == "1" ]]; then
   echo 'Skipping frontend build (ZBXTABLE_SKIP_FRONTEND=1).'
   exit 0
 fi
-if [[ -f "$EMBED_DIR/index.html" ]]; then
-  echo "Embedded frontend already exists: $EMBED_DIR"
+if [[ "${ZBXTABLE_KEEP_EMBEDDED_FRONTEND:-0}" == "1" && -f "$EMBED_DIR/index.html" ]]; then
+  echo "Keeping existing embedded frontend: $EMBED_DIR"
   exit 0
 fi
 
@@ -34,6 +34,7 @@ fi
 [[ -f "$WEB_DIR/package.json" ]] || { echo "Frontend package.json not found: $WEB_DIR" >&2; exit 1; }
 node "$ROOT_DIR/scripts/patch-frontend-zabbix.js" "$WEB_DIR"
 cd "$WEB_DIR"
+export NODE_OPTIONS="${NODE_OPTIONS:---openssl-legacy-provider}"
 if command -v yarn >/dev/null 2>&1 && [[ -f yarn.lock ]]; then
   yarn install --frozen-lockfile
   yarn build

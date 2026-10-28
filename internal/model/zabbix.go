@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 	"zbxtable/pkg/logger"
@@ -14,7 +15,16 @@ import (
 )
 
 // TestZabbixInstanceConfig 测试 Zabbix 配置能否连通
-func TestZabbixInstanceConfig(webURL, user, pass, token string) (string, error) {
+func TestZabbixInstanceConfig(webURL, user, pass, token string) (version string, err error) {
+	// zabbix-go versions used by older deployments assert JSON result types
+	// internally. Convert malformed or incompatible API responses into a
+	// normal connection error instead of allowing a web request to panic.
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			version = ""
+			err = fmt.Errorf("Zabbix API response was invalid: %v", recovered)
+		}
+	}()
 	web := normalizeZabbixWebURL(webURL)
 	if web == "" {
 		return "", errors.New("invalid Zabbix URL: use http(s)://host[:port][/path]")
@@ -114,12 +124,39 @@ func GetAllZabbixInstances() ([]ZabbixInstance, error) {
 
 // GetZabbixInstanceByZID 根据ZID获取实例
 func GetZabbixInstanceByZID(id int) (*ZabbixInstance, error) {
+	if id <= 0 {
+		return nil, errors.New("invalid Zabbix instance ID")
+	}
 	var instance ZabbixInstance
 	err := DB.First(&instance, id).Error
 	if err != nil {
 		return nil, err
 	}
 	return &instance, nil
+}
+
+// ResolveZID converts an optional instance query value into a database ID.
+// Older frontend pages did not send zid when only one integration was
+// configured.  In that case use the first enabled integration so the page
+// remains usable, while still returning an actionable error when no
+// integration has been configured.
+func ResolveZID(raw string) (int, error) {
+	raw = strings.TrimSpace(raw)
+	if raw != "" {
+		id, err := strconv.Atoi(raw)
+		if err != nil || id <= 0 {
+			return 0, fmt.Errorf("invalid Zabbix instance ID: %q", raw)
+		}
+		return id, nil
+	}
+	var instance ZabbixInstance
+	if err := DB.Where("enabled = ?", true).Order("id ASC").First(&instance).Error; err != nil {
+		return 0, errors.New("please configure and enable a Zabbix instance")
+	}
+	if instance.ID <= 0 {
+		return 0, errors.New("please configure and enable a Zabbix instance")
+	}
+	return instance.ID, nil
 }
 
 // GetZabbixInstanceByInstance 根据 instance 获取实例

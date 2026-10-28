@@ -495,18 +495,9 @@ func GetInspectionResults(policyID, page, limit int, status string) (int64, []In
 }
 
 func BuildInspectionSummary(rows []InspectionResult) InspectionSummary {
-	summary := InspectionSummary{Total: len(rows)}
+	summary := InspectionSummary{}
 	issueCounts := make(map[string]int)
-	var cpu, memory, disk float64
 	for _, row := range rows {
-		if row.Status == "ok" {
-			summary.Normal++
-		} else {
-			summary.Abnormal++
-		}
-		cpu += row.CPUPercent
-		memory += row.MemoryPercent
-		disk += row.DiskPercent
 		if row.CheckedAt.After(summary.LastChecked) {
 			summary.LastChecked = row.CheckedAt
 		}
@@ -522,11 +513,6 @@ func BuildInspectionSummary(rows []InspectionResult) InspectionSummary {
 			issueCounts[issue]++
 		}
 	}
-	if summary.Total > 0 {
-		summary.CPUAverage = Round(cpu/float64(summary.Total), 2)
-		summary.MemoryAverage = Round(memory/float64(summary.Total), 2)
-		summary.DiskAverage = Round(disk/float64(summary.Total), 2)
-	}
 	for name, count := range issueCounts {
 		summary.CommonIssues = append(summary.CommonIssues, InspectionIssue{Name: name, Count: count})
 	}
@@ -535,30 +521,59 @@ func BuildInspectionSummary(rows []InspectionResult) InspectionSummary {
 		summary.CommonIssues = summary.CommonIssues[:10]
 	}
 	summary.Devices = BuildInspectionDeviceSummaries(rows)
+	summary.Total = len(summary.Devices)
+	for _, device := range summary.Devices {
+		if device.Status == "ok" {
+			summary.Normal++
+		} else {
+			summary.Abnormal++
+		}
+		summary.CPUAverage += device.CPUAverage
+		summary.MemoryAverage += device.MemoryAverage
+		summary.DiskAverage += device.DiskAverage
+	}
+	if summary.Total > 0 {
+		summary.CPUAverage = Round(summary.CPUAverage/float64(summary.Total), 2)
+		summary.MemoryAverage = Round(summary.MemoryAverage/float64(summary.Total), 2)
+		summary.DiskAverage = Round(summary.DiskAverage/float64(summary.Total), 2)
+	}
 	return summary
 }
 
 func BuildInspectionDeviceSummaries(rows []InspectionResult) []InspectionDeviceSummary {
 	type accumulator struct {
 		InspectionDeviceSummary
-		cpu, memory, disk float64
-		timeSyncedCount   int
+		memoryTotal, memoryUsed, cpu, memory, disk, diskFree, timeOffset float64
+		timeSyncedCount                                                  int
+		accounts                                                         map[string]bool
 	}
 	byHost := make(map[string]*accumulator)
-	for _, row := range rows {
+	for index, row := range rows {
 		key := row.HostID
 		if key == "" {
 			key = row.HostName + "|" + row.IP
+			if key == "|" {
+				key = fmt.Sprintf("unknown-host-%d", index)
+			}
 		}
 		item := byHost[key]
 		if item == nil {
-			item = &accumulator{InspectionDeviceSummary: InspectionDeviceSummary{HostID: row.HostID, HostName: row.HostName, IP: row.IP, Status: "ok"}}
+			item = &accumulator{InspectionDeviceSummary: InspectionDeviceSummary{HostID: row.HostID, HostName: row.HostName, IP: row.IP, Status: "ok"}, accounts: make(map[string]bool)}
 			byHost[key] = item
 		}
 		item.Samples++
+		item.memoryTotal += row.MemoryTotal
+		item.memoryUsed += row.MemoryUsed
 		item.cpu += row.CPUPercent
 		item.memory += row.MemoryPercent
 		item.disk += row.DiskPercent
+		item.diskFree += row.DiskFree
+		item.timeOffset += row.TimeOffset
+		item.LoginFailures += row.LoginFailures
+		item.BruteForce += row.BruteForce
+		for _, account := range splitInspectionIDs(row.UnexpectedAccounts) {
+			item.accounts[account] = true
+		}
 		if row.TimeSynced {
 			item.timeSyncedCount++
 		}
@@ -572,11 +587,21 @@ func BuildInspectionDeviceSummaries(rows []InspectionResult) []InspectionDeviceS
 	result := make([]InspectionDeviceSummary, 0, len(byHost))
 	for _, item := range byHost {
 		if item.Samples > 0 {
+			item.MemoryTotal = Round(item.memoryTotal/float64(item.Samples), 2)
+			item.MemoryUsed = Round(item.memoryUsed/float64(item.Samples), 2)
 			item.CPUAverage = Round(item.cpu/float64(item.Samples), 2)
 			item.MemoryAverage = Round(item.memory/float64(item.Samples), 2)
 			item.DiskAverage = Round(item.disk/float64(item.Samples), 2)
+			item.DiskFree = Round(item.diskFree/float64(item.Samples), 2)
+			item.TimeOffset = Round(item.timeOffset/float64(item.Samples), 2)
 			item.TimeSynced = item.timeSyncedCount == item.Samples
 		}
+		accounts := make([]string, 0, len(item.accounts))
+		for account := range item.accounts {
+			accounts = append(accounts, account)
+		}
+		sort.Strings(accounts)
+		item.UnexpectedAccounts = strings.Join(accounts, ",")
 		result = append(result, item.InspectionDeviceSummary)
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].HostName < result[j].HostName })
@@ -629,13 +654,13 @@ func ExportInspectionReport(rows []InspectionResult, includeDetails bool) ([]byt
 		xlsx.SetCellValue(summarySheet, fmt.Sprintf("A%d", i+4), issue.Name)
 		xlsx.SetCellValue(summarySheet, fmt.Sprintf("B%d", i+4), issue.Count)
 	}
-	deviceHeaders := []string{"主机ID", "主机名称", "IP", "样本数", "CPU平均(%)", "内存平均(%)", "磁盘平均(%)", "时间同步", "状态", "最近检查时间"}
+	deviceHeaders := []string{"Host ID", "Host name", "IP", "Samples", "Average memory total (bytes)", "Average memory used (bytes)", "Average CPU (%)", "Average memory (%)", "Average disk (%)", "Average disk free (bytes)", "Average time offset (s)", "Time synced", "Login failures", "Brute force", "Unexpected accounts", "Status", "Last checked"}
 	for i, header := range deviceHeaders {
 		cell, _ := excelize.CoordinatesToCellName(i+1, 1)
 		xlsx.SetCellValue(deviceSheet, cell, header)
 	}
 	for rowIndex, row := range deviceRows {
-		values := []interface{}{row.HostID, row.HostName, row.IP, row.Samples, row.CPUAverage, row.MemoryAverage, row.DiskAverage, row.TimeSynced, row.Status, row.LastChecked.Format("2006-01-02 15:04:05")}
+		values := []interface{}{row.HostID, row.HostName, row.IP, row.Samples, row.MemoryTotal, row.MemoryUsed, row.CPUAverage, row.MemoryAverage, row.DiskAverage, row.DiskFree, row.TimeOffset, row.TimeSynced, row.LoginFailures, row.BruteForce, row.UnexpectedAccounts, row.Status, row.LastChecked.Format("2006-01-02 15:04:05")}
 		for col, value := range values {
 			cell, _ := excelize.CoordinatesToCellName(col+1, rowIndex+2)
 			xlsx.SetCellValue(deviceSheet, cell, value)
@@ -673,7 +698,9 @@ func ExportInspectionReport(rows []InspectionResult, includeDetails bool) ([]byt
 			}
 			_ = xlsx.SetCellStyle(summarySheet, "H1", "L1", decimalStyle)
 			if len(deviceRows) > 0 {
-				_ = xlsx.SetCellStyle(deviceSheet, "E2", "G"+strconv.Itoa(len(deviceRows)+1), decimalStyle)
+				// Capacity, percentages and time offsets all use a consistent
+				// two-decimal display in the management summary.
+				_ = xlsx.SetCellStyle(deviceSheet, "E2", "K"+strconv.Itoa(len(deviceRows)+1), decimalStyle)
 			}
 		}
 	}

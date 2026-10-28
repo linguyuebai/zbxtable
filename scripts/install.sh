@@ -39,18 +39,37 @@ check_port() {
   fi
 }
 
+set_config_value() {
+  local file="$1" key="$2" value="$3"
+  CONFIG_KEY="$key" CONFIG_VALUE="$value" python3 - "$file" <<'PY'
+import os, sys
+from pathlib import Path
+path = Path(sys.argv[1])
+lines = path.read_text(encoding='utf-8').splitlines()
+key = os.environ['CONFIG_KEY']
+value = os.environ['CONFIG_VALUE']
+for i, line in enumerate(lines):
+    if line.lstrip().startswith(key + '='):
+        lines[i] = key + '=' + value
+        break
+else:
+    lines.append(key + '=' + value)
+path.write_text('\n'.join(lines) + '\n', encoding='utf-8')
+PY
+}
+
 if [[ -f "$CONFIG_FILE" && "${FORCE_CONFIG:-0}" != "1" ]]; then
   log "Existing configuration found; keeping $CONFIG_FILE"
   HTTP_PORT="$(sed -n 's/^httpport=//p' "$CONFIG_FILE" | head -n 1)"
-  HTTP_PORT="${HTTP_PORT:-8088}"
+  HTTP_PORT="${HTTP_PORT:-8089}"
 else
   DB_TYPE="${ZBXTABLE_DB_TYPE:-mysql}"
   DB_HOST="${ZBXTABLE_DB_HOST:-127.0.0.1}"
   DB_PORT="${ZBXTABLE_DB_PORT:-3306}"
-  DB_NAME="${ZBXTABLE_DB_NAME:-zabbix}"
-  DB_USER="${ZBXTABLE_DB_USER:-zabbix}"
+  DB_NAME="${ZBXTABLE_DB_NAME:-zbxtable}"
+  DB_USER="${ZBXTABLE_DB_USER:-zbxtable}"
   DB_PASS="${ZBXTABLE_DB_PASS:-}"
-  HTTP_PORT="${ZBXTABLE_HTTP_PORT:-8088}"
+  HTTP_PORT="${ZBXTABLE_HTTP_PORT:-8089}"
   RUN_MODE="${ZBXTABLE_RUN_MODE:-prod}"
 
   if [[ -z "$DB_PASS" ]]; then
@@ -62,26 +81,13 @@ else
 
   check_port "$DB_HOST" "$DB_PORT" 'database'
   mkdir -p "$CONFIG_DIR"
-  cat > "$CONFIG_FILE" <<EOF
-httpport=$HTTP_PORT
-runmode=$RUN_MODE
-timeout=12
-log_level=3
-log_path=log
-maxlines=1000
-maxsize=0
-maxdays=10
-daily=true
-dbtype=$DB_TYPE
-dbhost=$DB_HOST
-dbuser=$DB_USER
-dbpass=$DB_PASS
-dbname=$DB_NAME
-dbport=$DB_PORT
-EOF
+  printf 'httpport=%s\nrunmode=%s\ntimeout=12\nlog_level=3\nlog_path=log\nmaxlines=1000\nmaxsize=0\nmaxdays=10\ndaily=true\ndbtype=%s\ndbhost=%s\ndbuser=%s\ndbpass=%s\ndbname=%s\ndbport=%s\n' \
+    "$HTTP_PORT" "$RUN_MODE" "$DB_TYPE" "$DB_HOST" "$DB_USER" "$DB_PASS" "$DB_NAME" "$DB_PORT" > "$CONFIG_FILE"
   chmod 600 "$CONFIG_FILE"
   log "Wrote shared-database configuration: $DB_TYPE $DB_HOST:$DB_PORT/$DB_NAME"
 fi
+
+[[ "$HTTP_PORT" =~ ^[0-9]+$ ]] && (( HTTP_PORT >= 1 && HTTP_PORT <= 65535 )) || fail "Invalid HTTP port in configuration: $HTTP_PORT"
 
 # Recreate a missing runtime configuration from the release template, and
 # normalize access even when an older install left permissive file modes.
@@ -98,6 +104,10 @@ while IFS='=' read -r key value; do
     log "Added missing configuration setting: $key"
   fi
 done < "$APP_DIR/config/app.conf.example"
+if [[ -n "${ZBXTABLE_HTTP_PORT:-}" ]]; then
+  set_config_value "$CONFIG_FILE" httpport "$ZBXTABLE_HTTP_PORT"
+  HTTP_PORT="$ZBXTABLE_HTTP_PORT"
+fi
 if grep -q '^[[:space:]]*dbpass[[:space:]]*=change-me[[:space:]]*$' "$CONFIG_FILE"; then
   DB_PASS="${ZBXTABLE_DB_PASS:-}"
   if [[ -z "$DB_PASS" ]]; then
@@ -106,9 +116,21 @@ if grep -q '^[[:space:]]*dbpass[[:space:]]*=change-me[[:space:]]*$' "$CONFIG_FIL
     printf '\n'
   fi
   [[ -n "$DB_PASS" ]] || fail 'Database password cannot be empty.'
-  escaped_db_pass="${DB_PASS//\\/\\\\}"
-  escaped_db_pass="${escaped_db_pass//|/\\|}"
-  sed -i "s|^[[:space:]]*dbpass[[:space:]]*=.*$|dbpass=$escaped_db_pass|" "$CONFIG_FILE"
+  DB_PASS_FOR_CONFIG="$DB_PASS" python3 - "$CONFIG_FILE" <<'PY'
+import os, sys
+from pathlib import Path
+path = Path(sys.argv[1])
+lines = path.read_text(encoding='utf-8').splitlines()
+updated = False
+for i, line in enumerate(lines):
+    if line.lstrip().startswith('dbpass='):
+        lines[i] = 'dbpass=' + os.environ['DB_PASS_FOR_CONFIG']
+        updated = True
+        break
+if not updated:
+    lines.append('dbpass=' + os.environ['DB_PASS_FOR_CONFIG'])
+path.write_text('\n'.join(lines) + '\n', encoding='utf-8')
+PY
 fi
 chmod 0600 "$CONFIG_FILE"
 mkdir -p "$BUILD_DIR" "$APP_DIR/log" "$APP_DIR/download" "$APP_DIR/upload"
@@ -147,8 +169,18 @@ if command -v systemctl >/dev/null 2>&1 && [[ "$(id -u)" -eq 0 ]]; then
   fi
   install -d -o zbxtable -g zbxtable -m 0750 "$RUNTIME_ROOT"
   install -m 0755 "$BUILD_DIR/$APP_NAME" "$RUNTIME_ROOT/$APP_NAME"
-  rm -rf "$RUNTIME_ROOT/config"
-  cp -a "$APP_DIR/config" "$RUNTIME_ROOT/config"
+  # A repair or direct reinstall must not replace a live configuration with
+  # a stale copy from the source tree. Release installs seed APP_DIR/config
+  # from the saved runtime config; only initialize runtime config when absent.
+  if [[ ! -f "$RUNTIME_ROOT/config/app.conf" ]]; then
+    install -d -o zbxtable -g zbxtable -m 0750 "$RUNTIME_ROOT/config"
+    cp -a "$APP_DIR/config/." "$RUNTIME_ROOT/config/"
+  fi
+  # The explicit --port selection must apply to the config actually read by
+  # systemd, including an existing runtime config preserved during repair.
+  if [[ -n "${ZBXTABLE_HTTP_PORT:-}" ]]; then
+    set_config_value "$RUNTIME_ROOT/config/app.conf" httpport "$ZBXTABLE_HTTP_PORT"
+  fi
   install -d -o zbxtable -g zbxtable -m 0750 "$RUNTIME_ROOT/log" "$RUNTIME_ROOT/download" "$RUNTIME_ROOT/upload"
   chown -R zbxtable:zbxtable "$RUNTIME_ROOT/config" "$RUNTIME_ROOT/log" "$RUNTIME_ROOT/download" "$RUNTIME_ROOT/upload"
   chmod 0750 "$RUNTIME_ROOT/config"

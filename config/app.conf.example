@@ -1,4 +1,4 @@
-httpport=8088
+httpport=8089
 runmode=prod
 timeout=12
 log_level=3
@@ -11,7 +11,7 @@ daily=true
 # 与 Zabbix 共用同一个数据库时填写 Zabbix 数据库信息。
 dbtype=mysql
 dbhost=127.0.0.1
-dbuser=zabbix
+dbuser=zbxtable
 dbpass=change-me
-dbname=zabbix
+dbname=zbxtable
 dbport=3306

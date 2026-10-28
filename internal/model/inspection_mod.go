@@ -96,16 +96,23 @@ type InspectionIssue struct {
 // reporting. It deliberately contains averages only, so daily samples do not
 // appear in a management report.
 type InspectionDeviceSummary struct {
-	HostID        string    `json:"host_id"`
-	HostName      string    `json:"host_name"`
-	IP            string    `json:"ip"`
-	Samples       int       `json:"samples"`
-	CPUAverage    float64   `json:"cpu_average"`
-	MemoryAverage float64   `json:"memory_average"`
-	DiskAverage   float64   `json:"disk_average"`
-	TimeSynced    bool      `json:"time_synced"`
-	Status        string    `json:"status"`
-	LastChecked   time.Time `json:"last_checked"`
+	HostID             string    `json:"host_id"`
+	HostName           string    `json:"host_name"`
+	IP                 string    `json:"ip"`
+	Samples            int       `json:"samples"`
+	MemoryTotal        float64   `json:"memory_total"`
+	MemoryUsed         float64   `json:"memory_used"`
+	CPUAverage         float64   `json:"cpu_average"`
+	MemoryAverage      float64   `json:"memory_average"`
+	DiskAverage        float64   `json:"disk_average"`
+	DiskFree           float64   `json:"disk_free"`
+	TimeOffset         float64   `json:"time_offset"`
+	TimeSynced         bool      `json:"time_synced"`
+	LoginFailures      int       `json:"login_failures"`
+	BruteForce         int       `json:"brute_force"`
+	UnexpectedAccounts string    `json:"unexpected_accounts"`
+	Status             string    `json:"status"`
+	LastChecked        time.Time `json:"last_checked"`
 }
 
 var DefaultInspectionItemKeys = InspectionItemKeys{

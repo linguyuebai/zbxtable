@@ -2,6 +2,10 @@ English | [简体中文](./README.zh-CN.md)
 
 # ZbxTable
 
+> Defaults: Web port `8089` and an isolated `zbxtable` database. All ZbxTable-owned tables use the `zbxtable_` prefix, so the application can coexist with an official Zabbix installation.
+
+New installs should use a separate `zbxtable` database and account. The installer never migrates, drops, or modifies Zabbix native tables such as `hosts`, `items`, `history`, or `events`. To intentionally share the Zabbix database, set `ZBXTABLE_DB_NAME=zabbix` explicitly; the application still creates only its `zbxtable_*` tables.
+
 [![Build and Test](https://github.com/canghai908/zbxtable/actions/workflows/build.yml/badge.svg)](https://github.com/canghai908/zbxtable/actions/workflows/build.yml)
 [![Release](https://github.com/canghai908/zbxtable/actions/workflows/release.yml/badge.svg)](https://github.com/canghai908/zbxtable/actions/workflows/release.yml)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
@@ -71,7 +75,7 @@ ZbxTable is an intelligent Zabbix operations platform developed using Go languag
 
 ### Alert Reception
 - **Webhook Method**: ZbxTable provides Webhook API endpoint to receive Zabbix alerts directly
-- **Endpoint**: `http://your-zbxtable-server:8088/v1/receive`
+- **Endpoint**: `http://your-zbxtable-server:8089/v1/receive`
 - **Authentication**: Token-based authentication
 - **Format**: JSON
 
@@ -131,7 +135,7 @@ sudo bash install.sh
 - ✅ Start service automatically
 
 **After installation:**
-- First installation: `http://your-server-ip:8088`
+- First installation: `http://your-server-ip:8089`
 - Default credentials: `admin / Zbxtable` (Please change immediately)
 
 ### Method 2: Binary Deployment
@@ -227,7 +231,7 @@ sudo systemctl status zbxtable
 
 #### 4. Access Installation Wizard
 
-Visit `http://your-server-ip:8088` and follow the installation wizard to configure database connection and complete the setup.
+Visit `http://your-server-ip:8089` and follow the installation wizard to configure database connection and complete the setup.
 
 ## 📚 Documentation
 

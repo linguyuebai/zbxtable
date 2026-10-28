@@ -53,11 +53,11 @@ RUN mkdir -p /app/log /app/download /app/template /app/config
 RUN chmod +x /app/zbxtable
 
 # 暴露端口
-EXPOSE 8088
+EXPOSE 8089
 
 # 健康检查
 HEALTHCHECK --interval=30s --timeout=3s --start-period=40s --retries=3 \
-    CMD wget --quiet --tries=1 --spider http://localhost:8088/ || exit 1
+    CMD wget --quiet --tries=1 --spider http://localhost:8089/ || exit 1
 
 # 启动应用
 CMD ["/app/zbxtable", "web"]

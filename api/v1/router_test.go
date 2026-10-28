@@ -1,12 +1,16 @@
 package v1
 
 import (
+	_ "embed"
 	"io"
 	"net/http/httptest"
 	"regexp"
 	"strings"
 	"testing"
 )
+
+//go:embed testdata/official-v3.0.6-routes.txt
+var officialV306RouteContract string
 
 func TestEmbeddedFrontendJavaScriptIsServed(t *testing.T) {
 	router := InitRouter()
@@ -19,21 +23,51 @@ func TestEmbeddedFrontendJavaScriptIsServed(t *testing.T) {
 		t.Fatalf("GET / Cache-Control = %q, want no-store", root.Header().Get("Cache-Control"))
 	}
 
-	script := regexp.MustCompile(`src=["']([^"']+\.js)["']`).FindStringSubmatch(root.Body.String())
-	if len(script) < 2 {
-		t.Fatal("index.html does not contain a JavaScript entrypoint")
+	checks := []struct {
+		name    string
+		pattern *regexp.Regexp
+	}{
+		{name: "JavaScript entrypoint", pattern: regexp.MustCompile(`src=["']([^"']+\.js)["']`)},
+		{name: "stylesheet", pattern: regexp.MustCompile(`href=["']([^"']+\.css)["']`)},
 	}
-	asset := httptest.NewRecorder()
-	router.ServeHTTP(asset, httptest.NewRequest("GET", script[1], nil))
-	if asset.Code != 200 {
-		t.Fatalf("GET %s status = %d, want 200", script[1], asset.Code)
+	for _, check := range checks {
+		matches := check.pattern.FindAllStringSubmatch(root.Body.String(), -1)
+		if len(matches) == 0 {
+			t.Fatalf("index.html does not contain a %s", check.name)
+		}
+		for _, match := range matches {
+			asset := httptest.NewRecorder()
+			router.ServeHTTP(asset, httptest.NewRequest("GET", match[1], nil))
+			if asset.Code != 200 {
+				t.Errorf("GET %s status = %d, want 200", match[1], asset.Code)
+				continue
+			}
+			body, err := io.ReadAll(asset.Body)
+			if err != nil {
+				t.Errorf("read frontend asset %s: %v", match[1], err)
+				continue
+			}
+			if len(body) == 0 || strings.Contains(strings.ToLower(string(body)), "<html") {
+				t.Errorf("frontend asset %s returned empty content or HTML fallback", match[1])
+			}
+		}
 	}
-	body, err := io.ReadAll(asset.Body)
-	if err != nil {
-		t.Fatalf("read JavaScript response: %v", err)
+
+	// The embedded service worker must only precache assets present in the
+	// embedded distribution; stale precache entries can leave users with a
+	// partially updated white screen after a release upgrade.
+	serviceWorker := httptest.NewRecorder()
+	router.ServeHTTP(serviceWorker, httptest.NewRequest("GET", "/service-worker.js", nil))
+	if serviceWorker.Code != 200 {
+		t.Fatalf("GET /service-worker.js status = %d, want 200", serviceWorker.Code)
 	}
-	if len(body) == 0 || strings.Contains(strings.ToLower(string(body)), "<html") {
-		t.Fatalf("JavaScript asset returned empty content or HTML fallback")
+	precachePattern := regexp.MustCompile(`url:\s*["']([^"']+)["']`)
+	for _, match := range precachePattern.FindAllStringSubmatch(serviceWorker.Body.String(), -1) {
+		asset := httptest.NewRecorder()
+		router.ServeHTTP(asset, httptest.NewRequest("GET", match[1], nil))
+		if asset.Code != 200 {
+			t.Errorf("service worker precache asset %s returned %d", match[1], asset.Code)
+		}
 	}
 
 	missingAsset := httptest.NewRecorder()
@@ -43,6 +77,21 @@ func TestEmbeddedFrontendJavaScriptIsServed(t *testing.T) {
 	}
 	if strings.Contains(strings.ToLower(missingAsset.Body.String()), "<html") {
 		t.Fatal("missing JavaScript asset incorrectly returned the SPA document")
+	}
+}
+
+func TestInspectionReportBrowserRouteServesSPA(t *testing.T) {
+	router := InitRouter()
+	page := httptest.NewRecorder()
+	router.ServeHTTP(page, httptest.NewRequest("GET", "/report/inspect", nil))
+	if page.Code != 200 {
+		t.Fatalf("GET /report/inspect status = %d, want 200", page.Code)
+	}
+	if !strings.Contains(strings.ToLower(page.Body.String()), "<!doctype") {
+		t.Fatalf("GET /report/inspect did not return the SPA document: %s", page.Body.String())
+	}
+	if page.Header().Get("Cache-Control") == "" || !strings.Contains(page.Header().Get("Cache-Control"), "no-store") {
+		t.Fatalf("GET /report/inspect Cache-Control = %q, want no-store", page.Header().Get("Cache-Control"))
 	}
 }
 
@@ -81,11 +130,11 @@ func TestManagerInfoEndpointIsRegisteredAndProtected(t *testing.T) {
 	response := httptest.NewRecorder()
 	request := httptest.NewRequest("POST", "/v1/manager/info", strings.NewReader(`{}`))
 	router.ServeHTTP(response, request)
-	if response.Code != 401 {
-		t.Fatalf("POST /v1/manager/info HTTP status = %d, want 401", response.Code)
+	if response.Code != 503 {
+		t.Fatalf("POST /v1/manager/info HTTP status = %d, want 503 before installation", response.Code)
 	}
-	if !strings.Contains(response.Body.String(), `"code":50014`) {
-		t.Fatalf("POST /v1/manager/info response = %s, want authentication error (not 404)", response.Body.String())
+	if !strings.Contains(response.Body.String(), `"redirect":"/install"`) {
+		t.Fatalf("POST /v1/manager/info response = %s, want install redirect", response.Body.String())
 	}
 }
 
@@ -94,7 +143,74 @@ func TestLoginEndpointIsRegistered(t *testing.T) {
 	response := httptest.NewRecorder()
 	request := httptest.NewRequest("POST", "/v1/login", strings.NewReader(`{invalid-json`))
 	router.ServeHTTP(response, request)
-	if response.Code != 200 || !strings.Contains(response.Body.String(), `"code":400`) {
-		t.Fatalf("POST /v1/login was not routed to the login handler: HTTP %d: %s", response.Code, response.Body.String())
+	if response.Code != 503 || !strings.Contains(response.Body.String(), `"redirect":"/install"`) {
+		t.Fatalf("POST /v1/login before installation returned HTTP %d: %s", response.Code, response.Body.String())
+	}
+}
+
+func TestOfficialAndExtensionRoutesRemainRegistered(t *testing.T) {
+	router := InitRouter()
+	routes := make(map[string]bool)
+	for _, route := range router.Routes() {
+		routes[route.Method+" "+route.Path] = true
+	}
+
+	// Keep the v3.0.6 product areas reachable while extending the application
+	// with instance management, inspection and security-log reporting.
+	want := []string{
+		"GET /v1/index/overview",
+		"GET /v1/host",
+		"GET /v1/host_group",
+		"GET /v1/template",
+		"GET /v1/item",
+		"POST /v1/history",
+		"GET /v1/trend",
+		"POST /v1/graph",
+		"GET /v1/alarm",
+		"GET /v1/problem",
+		"GET /v1/topology",
+		"GET /v1/topodata/:id",
+		"GET /v1/report",
+		"POST /v1/export/inventory",
+		"GET /v1/system/config",
+		"GET /v1/asset-group",
+		"GET /v1/asset-type",
+		"GET /v1/egress/configs",
+		"GET /v1/user",
+		"GET /v1/group",
+		"GET /v1/menu",
+		"GET /v1/zabbix/instance",
+		"GET /v1/inspection/policies",
+		"POST /v1/inspection/run",
+		"GET /v1/inspection/policies/:id/summary",
+		"POST /v1/inspection/export",
+	}
+	for _, key := range want {
+		if !routes[key] {
+			t.Errorf("required official or extension route %q is not registered", key)
+		}
+	}
+}
+
+func TestAllOfficialV306RoutesRemainRegistered(t *testing.T) {
+	router := InitRouter()
+	routes := make(map[string]bool)
+	for _, route := range router.Routes() {
+		routes[route.Method+" "+route.Path] = true
+	}
+
+	checked := 0
+	for _, line := range strings.Split(officialV306RouteContract, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		checked++
+		if !routes[line] {
+			t.Errorf("official v3.0.6 route %q is no longer registered", line)
+		}
+	}
+	if checked != 170 {
+		t.Fatalf("official route contract contains %d routes, want 170", checked)
 	}
 }

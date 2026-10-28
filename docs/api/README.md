@@ -6,7 +6,7 @@ ZbxTable 提供 RESTful API，支持通过 HTTP 请求访问系统功能。
 
 ## 基础信息
 
-- **Base URL**: `http://your-domain:8088/v1`
+- **Base URL**: `http://your-domain:8089/v1`
 - **认证方式**: Bearer Token
 - **请求格式**: JSON
 - **响应格式**: JSON

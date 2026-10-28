@@ -3,7 +3,7 @@ set -Eeuo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 IMAGE="${ZBXTABLE_DOCKER_IMAGE:-zbxtable:3.0.7}"
 CONTAINER="${ZBXTABLE_DOCKER_CONTAINER:-zbxtable}"
-PORT="${ZBXTABLE_HTTP_PORT:-8088}"
+PORT="${ZBXTABLE_HTTP_PORT:-8089}"
 GO_IMAGE="${ZBXTABLE_GO_IMAGE:-golang:1.24-bookworm}"
 RUNTIME_IMAGE="${ZBXTABLE_RUNTIME_IMAGE:-debian:bookworm-slim}"
 GO_PROXY="${ZBXTABLE_GOPROXY:-https://goproxy.cn|https://proxy.golang.org|direct}"
@@ -54,7 +54,7 @@ for arg in "$@"; do
     --runtime-image=*) RUNTIME_IMAGE="${arg#*=}" ;;
     --go-proxy=*) GO_PROXY="${arg#*=}" ;;
     --install-docker) INSTALL_DOCKER=1 ;;
-    -h|--help) echo 'Usage: sudo bash scripts/install-docker.sh [--install-docker] [--port=8088] [--go-image=IMAGE] [--runtime-image=IMAGE] [--go-proxy=URLS]'; exit 0 ;;
+    -h|--help) echo 'Usage: sudo bash scripts/install-docker.sh [--install-docker] [--port=8089] [--go-image=IMAGE] [--runtime-image=IMAGE] [--go-proxy=URLS]'; exit 0 ;;
     *) fail "Unknown option: $arg" ;;
   esac
 done
@@ -89,10 +89,10 @@ install -d -m 0750 "$CONFIG_DIR" "$ROOT_DIR/log" "$ROOT_DIR/download" "$ROOT_DIR
 if [[ ! -f "$CONFIG_DIR/app.conf" ]]; then cp "$CONFIG_DIR/app.conf.example" "$CONFIG_DIR/app.conf"; chmod 600 "$CONFIG_DIR/app.conf"; fi
 if grep -q '^dbpass=change-me$' "$CONFIG_DIR/app.conf" 2>/dev/null; then
   DB_TYPE="${ZBXTABLE_DB_TYPE:-mysql}"
-  DB_HOST="${ZBXTABLE_DB_HOST:-127.0.0.1}"
+  DB_HOST="${ZBXTABLE_DB_HOST:-host.docker.internal}"
   DB_PORT="${ZBXTABLE_DB_PORT:-3306}"
-  DB_NAME="${ZBXTABLE_DB_NAME:-zabbix}"
-  DB_USER="${ZBXTABLE_DB_USER:-zabbix}"
+  DB_NAME="${ZBXTABLE_DB_NAME:-zbxtable}"
+  DB_USER="${ZBXTABLE_DB_USER:-zbxtable}"
   DB_PASS="${ZBXTABLE_DB_PASS:-}"
   if [[ -z "$DB_PASS" ]]; then
     [[ -r /dev/tty && -w /dev/tty ]] || fail 'Database password is required; set ZBXTABLE_DB_PASS or run from an interactive terminal.'
@@ -100,30 +100,34 @@ if grep -q '^dbpass=change-me$' "$CONFIG_DIR/app.conf" 2>/dev/null; then
     printf '\n'
   fi
   [[ -n "$DB_PASS" ]] || fail 'Database password cannot be empty.'
-  cat > "$CONFIG_DIR/app.conf" <<EOF
-httpport=8088
-runmode=prod
-timeout=12
-log_level=3
-log_path=log
-maxlines=1000
-maxsize=0
-maxdays=10
-daily=true
-dbtype=$DB_TYPE
-dbhost=$DB_HOST
-dbuser=$DB_USER
-dbpass=$DB_PASS
-dbname=$DB_NAME
-dbport=$DB_PORT
-EOF
+  printf 'httpport=8089\nrunmode=prod\ntimeout=12\nlog_level=3\nlog_path=log\nmaxlines=1000\nmaxsize=0\nmaxdays=10\ndaily=true\ndbtype=%s\ndbhost=%s\ndbuser=%s\ndbpass=%s\ndbname=%s\ndbport=%s\n' \
+    "$DB_TYPE" "$DB_HOST" "$DB_USER" "$DB_PASS" "$DB_NAME" "$DB_PORT" > "$CONFIG_DIR/app.conf"
   chmod 600 "$CONFIG_DIR/app.conf"
 fi
-# The app always listens on 8088 inside the container; only the host-side port varies.
+# A configuration copied from a systemd installation commonly uses loopback.
+# Inside Docker that points back to the ZbxTable container, so route local DB
+# endpoints through the Docker host gateway while preserving remote hosts.
+DB_HOST_FOR_CONFIG="$(sed -n 's/^[[:space:]]*dbhost[[:space:]]*=[[:space:]]*//p' "$CONFIG_DIR/app.conf" | head -n 1)"
+if [[ "$DB_HOST_FOR_CONFIG" == "127.0.0.1" || "$DB_HOST_FOR_CONFIG" == "localhost" ]]; then
+  DB_HOST_FOR_CONFIG=host.docker.internal
+  DB_HOST_FOR_CONFIG="$DB_HOST_FOR_CONFIG" python3 - "$CONFIG_DIR/app.conf" <<'PY'
+import os, sys
+from pathlib import Path
+path = Path(sys.argv[1])
+lines = path.read_text(encoding='utf-8').splitlines()
+for i, line in enumerate(lines):
+    if line.lstrip().startswith('dbhost='):
+        lines[i] = 'dbhost=' + os.environ['DB_HOST_FOR_CONFIG']
+        break
+path.write_text('\n'.join(lines) + '\n', encoding='utf-8')
+PY
+  log 'Mapped the local database address to host.docker.internal for container access.'
+fi
+# The app always listens on 8089 inside the container; only the host-side port varies.
 if grep -q '^httpport=' "$CONFIG_DIR/app.conf"; then
-  sed -i 's/^httpport=.*/httpport=8088/' "$CONFIG_DIR/app.conf"
+  sed -i 's/^httpport=.*/httpport=8089/' "$CONFIG_DIR/app.conf"
 else
-  printf '\nhttpport=8088\n' >> "$CONFIG_DIR/app.conf"
+  printf '\nhttpport=8089\n' >> "$CONFIG_DIR/app.conf"
 fi
 log "Building image $IMAGE (Go base: $GO_IMAGE; runtime base: $RUNTIME_IMAGE)"
 if ! docker build \
@@ -138,7 +142,7 @@ chown -R "$APP_UID:$APP_UID" "$CONFIG_DIR" "$ROOT_DIR/log" "$ROOT_DIR/download" 
 chmod 0750 "$CONFIG_DIR" "$ROOT_DIR/log" "$ROOT_DIR/download" "$ROOT_DIR/upload"
 chmod 0600 "$CONFIG_DIR/app.conf"
 docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
-docker run -d --name "$CONTAINER" --restart unless-stopped -p "$PORT:8088" -v "$CONFIG_DIR:/app/config" -v "$ROOT_DIR/log:/app/log" -v "$ROOT_DIR/download:/app/download" -v "$ROOT_DIR/upload:/app/upload" "$IMAGE" >/dev/null
+docker run -d --name "$CONTAINER" --restart unless-stopped --add-host=host.docker.internal:host-gateway -p "$PORT:8089" -v "$CONFIG_DIR:/app/config" -v "$ROOT_DIR/log:/app/log" -v "$ROOT_DIR/download:/app/download" -v "$ROOT_DIR/upload:/app/upload" "$IMAGE" >/dev/null
 attempt=1
 while (( attempt <= 30 )); do
   if curl -fsS --max-time 2 "http://127.0.0.1:$PORT/" | grep -qi '<html'; then

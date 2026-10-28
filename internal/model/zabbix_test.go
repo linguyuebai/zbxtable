@@ -28,6 +28,17 @@ func TestNormalizeZabbixWebURL(t *testing.T) {
 	}
 }
 
+func TestResolveZIDRejectsInvalidIDs(t *testing.T) {
+	for _, raw := range []string{"not-an-id", "0", "-2"} {
+		if id, err := ResolveZID(raw); err == nil || id != 0 {
+			t.Errorf("ResolveZID(%q) = %d, %v; want an invalid-ID error", raw, id, err)
+		}
+	}
+	if _, err := GetZabbixInstanceByZID(0); err == nil {
+		t.Fatal("GetZabbixInstanceByZID(0) error = nil, want invalid-ID error")
+	}
+}
+
 func TestTestZabbixInstanceConfigUsesJSONRPCWithoutGETProbe(t *testing.T) {
 	var methods []string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -96,6 +107,78 @@ func TestTestZabbixInstanceConfigValidatesTokenPermissions(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "Not authorized") {
 		t.Fatalf("error = %v, want unauthorized-token error", err)
 	}
+}
+
+func TestTestZabbixInstanceConfigSupportsZabbix74PasswordAndToken(t *testing.T) {
+	t.Run("password uses username and authenticates host.get", func(t *testing.T) {
+		var loginParams map[string]interface{}
+		var hostAuthorization string
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			var request struct {
+				Method string                 `json:"method"`
+				Params map[string]interface{} `json:"params"`
+			}
+			if err := stdjson.NewDecoder(r.Body).Decode(&request); err != nil {
+				t.Fatalf("decode JSON-RPC request: %v", err)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			switch request.Method {
+			case "APIInfo.version":
+				_, _ = w.Write([]byte(`{"jsonrpc":"2.0","result":"7.4.0","id":1}`))
+			case "user.login":
+				loginParams = request.Params
+				_, _ = w.Write([]byte(`{"jsonrpc":"2.0","result":"session-token","id":2}`))
+			case "host.get":
+				hostAuthorization = r.Header.Get("Authorization")
+				_, _ = w.Write([]byte(`{"jsonrpc":"2.0","result":[{"hostid":"10084"}],"id":3}`))
+			default:
+				t.Errorf("unexpected JSON-RPC method: %s", request.Method)
+			}
+		}))
+		defer server.Close()
+
+		version, err := TestZabbixInstanceConfig(server.URL, "Admin", "zabbix", "")
+		if err != nil {
+			t.Fatalf("password connection test failed: %v", err)
+		}
+		if version != "7.4.0" || loginParams["username"] != "Admin" || loginParams["password"] != "zabbix" {
+			t.Fatalf("version/login params = %q/%v", version, loginParams)
+		}
+		if hostAuthorization != "Bearer session-token" {
+			t.Fatalf("host.get Authorization = %q, want Bearer session-token", hostAuthorization)
+		}
+	})
+
+	t.Run("token authenticates host.get with bearer header", func(t *testing.T) {
+		var hostAuthorization string
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			var request struct {
+				Method string `json:"method"`
+			}
+			if err := stdjson.NewDecoder(r.Body).Decode(&request); err != nil {
+				t.Fatalf("decode JSON-RPC request: %v", err)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			switch request.Method {
+			case "APIInfo.version":
+				_, _ = w.Write([]byte(`{"jsonrpc":"2.0","result":"7.4.0","id":1}`))
+			case "host.get":
+				hostAuthorization = r.Header.Get("Authorization")
+				_, _ = w.Write([]byte(`{"jsonrpc":"2.0","result":[{"hostid":"10084"}],"id":2}`))
+			default:
+				t.Errorf("unexpected JSON-RPC method: %s", request.Method)
+			}
+		}))
+		defer server.Close()
+
+		version, err := TestZabbixInstanceConfig(server.URL+"/zabbix/api_jsonrpc.php", "", "", "api-token")
+		if err != nil {
+			t.Fatalf("token connection test failed: %v", err)
+		}
+		if version != "7.4.0" || hostAuthorization != "Bearer api-token" {
+			t.Fatalf("version/Authorization = %q/%q", version, hostAuthorization)
+		}
+	})
 }
 
 func TestTestZabbixInstanceConfigReturnsActionableAuthenticationError(t *testing.T) {

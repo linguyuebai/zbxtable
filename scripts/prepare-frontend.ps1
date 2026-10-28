@@ -7,7 +7,7 @@ $Ref = if ($env:ZBXTABLE_WEB_REF) { $env:ZBXTABLE_WEB_REF } else { '3.0' }
 $Temp = $null
 
 if ($env:ZBXTABLE_SKIP_FRONTEND -eq '1') { Write-Host 'Frontend build skipped.'; exit 0 }
-if (Test-Path (Join-Path $Embed 'index.html')) { Write-Host "Embedded frontend found: $Embed"; exit 0 }
+if ($env:ZBXTABLE_KEEP_EMBEDDED_FRONTEND -eq '1' -and (Test-Path (Join-Path $Embed 'index.html'))) { Write-Host "Keeping existing embedded frontend: $Embed"; exit 0 }
 if (-not $WebDir) {
   foreach ($candidate in @((Join-Path $Root '..\zbxtable-web'), (Join-Path $Root '..\zbxtable-web-master\zbxtable-web-master'))) {
     if (Test-Path (Join-Path $candidate 'package.json')) { $WebDir = (Resolve-Path $candidate).Path; break }
@@ -26,6 +26,7 @@ try {
   if (-not (Test-Path (Join-Path $WebDir 'package.json'))) { throw "Frontend package.json not found: $WebDir" }
   node (Join-Path $Root 'scripts\patch-frontend-zabbix.js') $WebDir
   if ($LASTEXITCODE -ne 0) { throw 'Applying the Zabbix integration UI patch failed.' }
+  if (-not $env:NODE_OPTIONS) { $env:NODE_OPTIONS = '--openssl-legacy-provider' }
   Push-Location $WebDir
   if ((Get-Command yarn -ErrorAction SilentlyContinue) -and (Test-Path 'yarn.lock')) { yarn install --frozen-lockfile; yarn build }
   else { npm ci; npm run build }

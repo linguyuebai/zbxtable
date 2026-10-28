@@ -16,7 +16,45 @@ function edit(relativePath, transform) {
   if (updated !== original) fs.writeFileSync(filename, updated, 'utf8');
 }
 
+// Fail the build if its frontend baseline has lost a page that ships with the
+// official v3.0.x UI. Extensions must be additive; a successful build alone
+// does not prove that the upstream product navigation is still present.
+function requireSource(relativePath, fragments) {
+  const filename = path.join(webRoot, relativePath);
+  if (!fs.existsSync(filename)) throw new Error(`Required official frontend file is missing: ${relativePath}`);
+  const source = fs.readFileSync(filename, 'utf8');
+  for (const fragment of fragments) {
+    if (!source.includes(fragment)) {
+      throw new Error(`Official frontend baseline check failed: ${relativePath} is missing ${fragment}`);
+    }
+  }
+}
+
+requireSource('app/router/index.js', [
+  "path:'/dashboard'", "path:'/srcManage'", "path:'/host'", "path:'/groups'",
+  "path:'/templates'", "path:'/graph'", "path:'/report'", "path:'/export'",
+  "path:'/inspect'", "path:'/alarm'", "path:'/analysis'", "path:'/query'",
+  "path:'/system'", "path:'/chpwd'", "path:'/login'",
+]);
+for (const relativePath of [
+  'app/views/dashboard/index.jsx',
+  'app/views/srcManage/index.jsx',
+  'app/views/srcManage/groups.jsx',
+  'app/views/srcManage/templates.jsx',
+  'app/views/srcManage/graph.jsx',
+  'app/views/report/index.jsx',
+  'app/views/alarm/index.jsx',
+  'app/views/alarm/query.jsx',
+  'app/views/system/chpwd.jsx',
+  'app/views/user/index.jsx',
+]) {
+  requireSource(relativePath, ['import', 'export']);
+}
+
 edit('app/api/pro2.js', source => {
+  // The customized build intentionally omits the optional authorization
+  // information page from the official menu and API map.
+  source = source.replace(/\s*license:\{url:'\/license'\},?/g, '');
   if (source.includes('zabbix:{')) return source;
   const marker = '\n};\n\nexport default apis;';
   if (!source.includes(marker)) throw new Error('Cannot find the API map insertion point in app/api/pro2.js');
@@ -35,6 +73,8 @@ edit('app/api/pro2.js', source => {
 });
 
 edit('app/api/api.js', source => {
+  source = source.replace('system:{license,chpwd},', 'system:{chpwd},');
+  source = source.replace(/\nexport const getLicense=.*?;\n/g, '\n');
   if (source.includes('getZabbixInstances=')) return source;
   const marker = /export const chpwdFn=.*?;\s*/;
   if (!marker.test(source)) throw new Error('Cannot find the API export insertion point in app/api/api.js');
@@ -65,8 +105,16 @@ edit('app/router/index.js', source => {
           },`;
     source = source.replace(marker, route);
   }
-  return source.replace("redirect:'/system/license'", "redirect:'/system/zabbix'");
+  source = source.replace("redirect:'/system/license'", "redirect:'/system/zabbix'");
+  source = source.replace(/\s*\{\s*path:'\/license',[\s\S]*?component:\(\)=>import\('\.\.\/views\/system'\),\s*\},\s*/, '\n');
+  return source;
 });
+
+for (const language of ['zh', 'en']) {
+  edit(`app/i18n/${language}/router.js`, source => {
+    return source.replace(/^\s*['"]\/license['"]\s*:\s*[^,]+,\s*\r?\n?/m, '');
+  });
+}
 
 edit('scripts/webpack.config.js', source => source.replace(
   "chunkFilename:'js/[name]_[chunkhash:8].chunk.js'",

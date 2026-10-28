@@ -112,6 +112,9 @@ func InitRouter() *gin.Engine {
 	r.GET("/", func(c *gin.Context) {
 		serveFrontendDocument(c)
 	})
+	r.GET("/index.html", func(c *gin.Context) {
+		serveFrontendDocument(c)
+	})
 	// The installer is a client-side route in the embedded application.  It
 	// must be registered explicitly because /install/status and the other
 	// installer endpoints are API routes, while a browser GET /install needs
@@ -241,7 +244,9 @@ func InitRouter() *gin.Engine {
 			hostGroupGroup := api.Group("/host_group")
 			{
 				hostGroupGroup.GET("", handler.GetAllGroupsList)
-				//	hostGroupGroup.GET("/list", handler.GetAllGroupsList)
+				// Keep the v3.0.6 URL used by the official frontend; the root URL
+				// remains available for newer clients.
+				hostGroupGroup.GET("/list", handler.GetAllGroupsList)
 				hostGroupGroup.GET("/tree", handler.GetAllHostGroupsTree)
 				hostGroupGroup.GET("/:id/hosts", handler.GetHostsByGroupID)
 				hostGroupGroup.GET("/list/:id/hosts", handler.GetHostsByGroupID)
@@ -415,6 +420,7 @@ func InitRouter() *gin.Engine {
 				inspectionGroup.DELETE("/policies/:id", handler.DeleteInspectionPolicy)
 				inspectionGroup.POST("/run", handler.RunInspection)
 				inspectionGroup.GET("/policies/:id/results", handler.GetInspectionResults)
+				inspectionGroup.DELETE("/policies/:id/results", handler.DeleteInspectionResults)
 				inspectionGroup.GET("/policies/:id/summary", handler.GetInspectionSummary)
 				inspectionGroup.POST("/export", handler.ExportInspection)
 			}
@@ -512,13 +518,7 @@ func InitRouter() *gin.Engine {
 		}
 
 		// 对于根路径和其他前端路由，返回 index.html
-		data, err := fs.ReadFile(subFS, "index.html")
-		if err != nil {
-			// 添加详细的错误信息
-			c.String(500, "Failed to load frontend: %v", err)
-			return
-		}
-		c.Data(200, "text/html; charset=utf-8", data)
+		serveFrontendDocument(c)
 	})
 
 	return r

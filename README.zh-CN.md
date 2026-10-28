@@ -2,6 +2,12 @@
 
 # ZbxTable
 
+> 当前默认值：Web 端口 `8089`，独立数据库 `zbxtable`。ZbxTable 的自有表始终使用 `zbxtable_` 前缀，因此可以与官方 Zabbix 共存。
+
+### 数据库隔离
+
+新安装建议创建独立的 `zbxtable` 数据库并使用单独账号。安装脚本不会迁移、删除或修改 Zabbix 的 `hosts`、`items`、`history`、`events` 等原生表；只会在配置的数据库中创建 `zbxtable_` 前缀表。若确实需要共用 Zabbix 数据库，可显式设置 `ZBXTABLE_DB_NAME=zabbix`，但仍须授予 ZbxTable 账号创建和读写 `zbxtable_*` 表的权限。
+
 [![Build and Test](https://github.com/canghai908/zbxtable/actions/workflows/build.yml/badge.svg)](https://github.com/canghai908/zbxtable/actions/workflows/build.yml)
 [![Release](https://github.com/canghai908/zbxtable/actions/workflows/release.yml/badge.svg)](https://github.com/canghai908/zbxtable/actions/workflows/release.yml)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
@@ -29,7 +35,7 @@ Linux：
 
 ```bash
 cd zbxtable
-ZBXTABLE_DB_NAME=zabbix ZBXTABLE_DB_USER=zabbix ZBXTABLE_DB_PASS='数据库密码' bash scripts/install.sh
+ZBXTABLE_DB_NAME=zbxtable ZBXTABLE_DB_USER=zbxtable ZBXTABLE_DB_PASS='数据库密码' bash scripts/install.sh
 bash scripts/run.sh
 ```
 
@@ -99,7 +105,7 @@ Windows：双击 `scripts\\install.bat` 完成编译和配置，再双击 `scrip
 
 **ZbxTable**: 后端使用 [Gin 框架](https://github.com/gin-gonic/gin) 和 Go 语言开发。
 
-**ZbxTable-Web**: 前端使用 [Vue](https://github.com/vuejs/vue) 开发。
+**ZbxTable-Web**: 前端使用 React 16、Ant Design 4、ECharts 和 G6 开发。官方前端的仪表盘、主机、告警、报表、拓扑和系统管理页面均保留；当前版本在官方前端上补充了 Zabbix 多实例接入和设备巡检页面。前端源码位于独立的 [ZbxTable-Web 仓库](https://github.com/canghai908/zbxtable-web)，发布构建后嵌入 Go 服务。
 
 ## 🛠️ 技术栈
 
@@ -111,14 +117,14 @@ Windows：双击 `scripts\\install.bat` 完成编译和配置，再双击 `scrip
 - **AI 集成**: Ollama / Deepseek API
 
 ### 前端技术
-- **框架**: Vue.js 2.x
-- **UI 组件**: Ant Design Vue
+- **框架**: React 16
+- **UI 组件**: Ant Design 4
 - **图表**: ECharts
 - **拓扑图**: G6
 
 ### 告警接收
 - **Webhook 方式**: ZbxTable 提供 Webhook API 接口，直接接收 Zabbix 告警
-- **接口地址**: `http://your-zbxtable-server:8088/v1/receive`
+- **接口地址**: `http://your-zbxtable-server:8089/v1/receive`
 - **认证方式**: Token 认证
 - **支持格式**: JSON
 
@@ -161,12 +167,8 @@ Windows：双击 `scripts\\install.bat` 完成编译和配置，再双击 `scrip
 适用于 CentOS、Ubuntu、Debian 等 Linux 系统，自动完成所有配置。
 
 ```bash
-# 在线安装
-curl -fsSL https://dl.cactifans.com/zbxtable/install.sh | sudo bash
-
-# 或者下载后安装
-wget https://dl.cactifans.com/zbxtable/install.sh
-sudo bash install.sh
+# 交互式安装管理器：按菜单选择 systemd、Docker、更新、修复或卸载
+curl -fsSL https://github.com/linguyuebai/zbxtable/releases/download/v3.0.8/install-release.sh | sudo bash
 ```
 
 **安装脚本功能：**
@@ -178,28 +180,27 @@ sudo bash install.sh
 - ✅ 自动启动服务
 
 **安装后访问：**
-- 首次安装：`http://your-server-ip:8088`
+- 首次安装：`http://your-server-ip:8089`
 - 默认账号：`admin / Zbxtable`（请立即修改密码）
 
-### 方式二：二进制部署
+### 方式二：源码包手动部署
 
-#### 1. 下载二进制文件
+#### 1. 下载并构建源码
 
-从 GitHub Releases 或镜像站下载：
+从本仓库 GitHub Release 下载源码包和对应校验文件。也可以使用前文的一键安装管理器自动下载、校验并部署。手动构建需要 Go 1.24+ 和已构建的前端资源：
 
 ```bash
-# 从 GitHub 下载（以 v3.0.0 为例）
-wget https://github.com/canghai908/zbxtable/releases/download/v3.0.0/zbxtable-v3.0.0-linux-amd64.tar.gz
-
-# 或从镜像站下载
-wget https://dl.cactifans.com/zbxtable/zbxtable-latest-linux-amd64.tar.gz
-
-# 解压
-tar -xzf zbxtable-v3.0.0-linux-amd64.tar.gz
-cd zbxtable-v3.0.0-linux-amd64
+wget https://github.com/linguyuebai/zbxtable/releases/download/v3.0.8/zbxtable-v3.0.8-source.tar.gz
+wget https://github.com/linguyuebai/zbxtable/releases/download/v3.0.8/zbxtable-v3.0.8-source.tar.gz.sha256
+sha256sum -c zbxtable-v3.0.8-source.tar.gz.sha256
+tar -xzf zbxtable-v3.0.8-source.tar.gz
+cd zbxtable-v3.0.8
+go build -trimpath -o zbxtable ./main.go
 ```
 
-#### 2. 创建数据库
+#### 2. 配置数据库
+
+可以使用独立数据库，也可以与 Zabbix 共用 MySQL/MariaDB 或 PostgreSQL 数据库。共用数据库时使用具备创建和读写 `zbxtable_` 前缀表权限的账号；不要对 Zabbix 原生表执行迁移或删除操作。
 
 **MySQL：**
 
@@ -274,13 +275,16 @@ sudo systemctl status zbxtable
 
 #### 4. 访问安装向导
 
-访问 `http://your-server-ip:8088`，按照安装向导配置数据库连接并完成安装。
+访问 `http://your-server-ip:8089`，按照安装向导配置数据库连接并完成安装。
 
 ## 📚 文档
 
-- [3.0 版本发布说明](./RELEASE_3.0.md) - 详细的版本更新内容
-- [系统说明文档](./docs/SYSTEM.md) - 完整的系统文档
-- [API 文档](./docs/api/README.md) - API 接口文档
+- [官方功能保留与扩展说明](./docs/官方功能保留与扩展说明.md) - 以官方 v3.0.6 为基线说明原有功能、扩展功能和代码/界面对应关系
+- [Zabbix 实例对接与排障](./docs/Zabbix实例对接与排障.md) - 多实例新增、连通性检查和常见问题
+- [Zabbix 巡检与 Windows 日志对接指南](./docs/Zabbix-巡检与Windows日志对接指南.md) - 巡检、日志采集和通知
+- [3.0.8 完整部署手册](./docs/3.0.8-完整部署手册.md) - Linux、Docker 和更新修复步骤
+- [文档中心](./docs/README.md) - 全部现有说明和发布资料索引
+- [API 文档](./docs/api/README.md) - API 接口概览
 - [官方网站](https://zbxtable.com) - 更多文档和教程
 
 ## 📊 系统要求
@@ -384,7 +388,7 @@ curl -fsSL https://github.com/linguyuebai/zbxtable/releases/download/v3.0.8/inst
 Docker 一键安装（自动检测 Docker、可选安装 Docker、构建前端镜像并检查网页）：
 
 ```bash
-curl -fsSL https://github.com/linguyuebai/zbxtable/releases/download/v3.0.8/install-release.sh | sudo bash -s -- --version=v3.0.8 --docker-install --port=8088
+curl -fsSL https://github.com/linguyuebai/zbxtable/releases/download/v3.0.8/install-release.sh | sudo bash -s -- --version=v3.0.8 --docker-install --port=8089
 ```
 
 已有安装需要升级时，使用 `--update`。脚本会自动识别 systemd 或 Docker，保留 `config/app.conf`，下载最新 Release、替换程序和前端、重启服务并执行网页健康检查：
@@ -394,7 +398,7 @@ curl -fsSL https://github.com/linguyuebai/zbxtable/releases/latest/download/inst
   | sudo bash -s -- --update --install-root=/opt/zbxtable
 ```
 
-自定义端口时把 `--port=8088` 改为例如 `--port=9088`，访问 `http://服务器IP:9088`。
+自定义端口时把 `--port=8089` 改为例如 `--port=9088`，访问 `http://服务器IP:9088`。
 
 如果服务器访问 Docker Hub 超时，可在菜单中填写可访问的 Go/Debian 镜像地址；命令行安装可使用 `--go-image`、`--runtime-image`、`--go-proxy` 和 `--go-download-base` 指定镜像源与 Go 下载地址。系统服务安装也支持 Go 代理参数。详见[网络受限环境部署说明](./docs/3.0.8-完整部署手册.md#网络受限时指定-go-代理和-docker-镜像)。
 

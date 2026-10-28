@@ -100,7 +100,7 @@ func runWeb(*cli.Context) error {
 		logger.Log.Info("System not installed, starting installation wizard mode")
 		// When not installed, only start web server, don't connect to database
 		r := v1.InitRouter()
-		httpport := "8088"
+		httpport := "8089"
 		fmt.Printf("Service listening on: http://0.0.0.0:%s\n", httpport)
 		fmt.Printf("Installation wizard: http://localhost:%s/install\n", httpport)
 		fmt.Println("Running mode: Installation wizard mode")
@@ -126,7 +126,7 @@ func runWeb(*cli.Context) error {
 	dbname := GetConfKey("dbname")
 	httpport := GetConfKey("httpport")
 	if httpport == "" {
-		httpport = "8088"
+		httpport = "8089"
 	}
 	runmode := GetConfKey("runmode")
 	if runmode == "" {

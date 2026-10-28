@@ -49,3 +49,43 @@ func TestBuildInspectionSummary(t *testing.T) {
 		t.Fatalf("summary = %+v", summary)
 	}
 }
+
+func TestBuildInspectionSummaryAveragesDevicesInsteadOfDailyRows(t *testing.T) {
+	now := time.Now()
+	rows := []InspectionResult{
+		{HostID: "host-a", HostName: "A", CPUPercent: 10, MemoryPercent: 20, DiskPercent: 30, MemoryTotal: 100, MemoryUsed: 50, DiskFree: 40, TimeOffset: 2, TimeSynced: true, Status: "ok", CheckedAt: now},
+		{HostID: "host-a", HostName: "A", CPUPercent: 30, MemoryPercent: 40, DiskPercent: 50, MemoryTotal: 120, MemoryUsed: 70, DiskFree: 20, TimeOffset: 4, TimeSynced: true, Status: "ok", CheckedAt: now.Add(24 * time.Hour)},
+		{HostID: "host-b", HostName: "B", CPUPercent: 80, MemoryPercent: 70, DiskPercent: 60, MemoryTotal: 200, MemoryUsed: 150, DiskFree: 100, TimeOffset: 10, TimeSynced: false, Status: "warning", CheckedAt: now},
+	}
+
+	summary := BuildInspectionSummary(rows)
+	if summary.Total != 2 || summary.Normal != 1 || summary.Abnormal != 1 {
+		t.Fatalf("device summary counts = total:%d normal:%d abnormal:%d, want 2/1/1", summary.Total, summary.Normal, summary.Abnormal)
+	}
+	if summary.CPUAverage != 50 || summary.MemoryAverage != 50 || summary.DiskAverage != 50 {
+		t.Fatalf("summary averages = CPU:%v memory:%v disk:%v, want 50/50/50", summary.CPUAverage, summary.MemoryAverage, summary.DiskAverage)
+	}
+	if len(summary.Devices) != 2 {
+		t.Fatalf("device rows = %d, want 2", len(summary.Devices))
+	}
+	device := summary.Devices[0]
+	if device.HostID != "host-a" || device.CPUAverage != 20 || device.MemoryTotal != 110 || device.MemoryUsed != 60 || device.DiskFree != 30 || device.TimeOffset != 3 || !device.TimeSynced {
+		t.Fatalf("averaged device = %+v", device)
+	}
+}
+
+func TestBuildInspectionSummaryCountsHealthPerDevice(t *testing.T) {
+	now := time.Now()
+	rows := []InspectionResult{
+		{HostID: "host-a", HostName: "A", CPUPercent: 10, Status: "ok", CheckedAt: now},
+		{HostID: "host-a", HostName: "A", CPUPercent: 90, Status: "warning", CheckedAt: now.Add(time.Hour)},
+		{HostID: "host-b", HostName: "B", CPUPercent: 30, Status: "ok", CheckedAt: now},
+	}
+	summary := BuildInspectionSummary(rows)
+	if summary.Total != 2 || summary.Normal != 1 || summary.Abnormal != 1 {
+		t.Fatalf("summary health counts = total:%d normal:%d abnormal:%d, want 2/1/1", summary.Total, summary.Normal, summary.Abnormal)
+	}
+	if summary.CPUAverage != 40 {
+		t.Fatalf("CPU average = %v, want average of per-device averages (40)", summary.CPUAverage)
+	}
+}

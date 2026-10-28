@@ -44,6 +44,13 @@ if [[ "${ZBXTABLE_NEED_FRONTEND_BUILD:-0}" == "1" ]]; then
   esac
 fi
 
+# Docker builds use Go inside the builder image. When this bootstrap is only
+# preparing Node/Git for the frontend, avoid an unnecessary host Go download.
+if [[ "${ZBXTABLE_SKIP_GO_INSTALL:-0}" == "1" ]]; then
+  log 'Skipping host Go installation; the application will be built in Docker.'
+  exit 0
+fi
+
 go_ok=0
 if command -v go >/dev/null 2>&1; then
   version="$(go version | awk '{print $3}' | sed 's/^go//')"

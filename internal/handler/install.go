@@ -3,6 +3,8 @@ package handler
 import (
 	"crypto/tls"
 	"database/sql"
+	"fmt"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -15,7 +17,7 @@ import (
 
 	"github.com/canghai908/zabbix-go"
 	"github.com/gin-gonic/gin"
-	_ "github.com/go-sql-driver/mysql"
+	mysqlDriver "github.com/go-sql-driver/mysql"
 	_ "github.com/lib/pq"
 	"gopkg.in/ini.v1"
 )
@@ -81,9 +83,13 @@ func checkZabbixAPISafe(address, user, pass, token string) (string, error) {
 func checkDatabaseConnection(dbdriver, dbhost, dbuser, dbpass, dbname, dbport string) error {
 	switch dbdriver {
 	case "mysql":
-		dbURL := dbuser + ":" + dbpass + "@tcp(" + dbhost + ":" +
-			dbport + ")/" + dbname + "?parseTime=true&loc=Asia%2FShanghai&timeout=5s&charset=utf8&collation=utf8_general_ci"
-		db, err := sql.Open("mysql", dbURL)
+		config := mysqlDriver.Config{
+			User: dbuser, Passwd: dbpass, Net: "tcp",
+			Addr: net.JoinHostPort(dbhost, dbport), DBName: dbname,
+			ParseTime: true, Loc: time.FixedZone("CST", 8*60*60), Timeout: 5 * time.Second,
+			Collation: "utf8_general_ci", Params: map[string]string{"charset": "utf8"},
+		}
+		db, err := sql.Open("mysql", config.FormatDSN())
 		if err != nil {
 			return err
 		}
@@ -93,12 +99,16 @@ func checkDatabaseConnection(dbdriver, dbhost, dbuser, dbpass, dbname, dbport st
 			return err
 		}
 	case "postgresql":
-		dbURL := "postgres://" + dbuser + ":" + url.QueryEscape(dbpass) + "@" + dbhost + ":" + dbport + "/" + dbname + "?sslmode=disable"
-		connString, err := url.Parse(dbURL)
-		if err != nil {
-			return err
+		connectionURL := url.URL{
+			Scheme: "postgres",
+			User:   url.UserPassword(dbuser, dbpass),
+			Host:   net.JoinHostPort(dbhost, dbport),
+			Path:   "/" + dbname,
 		}
-		db, err := sql.Open("postgres", connString.String())
+		query := connectionURL.Query()
+		query.Set("sslmode", "disable")
+		connectionURL.RawQuery = query.Encode()
+		db, err := sql.Open("postgres", connectionURL.String())
 		if err != nil {
 			return err
 		}
@@ -107,6 +117,8 @@ func checkDatabaseConnection(dbdriver, dbhost, dbuser, dbpass, dbname, dbport st
 		if err != nil {
 			return err
 		}
+	default:
+		return fmt.Errorf("unsupported database type %q", dbdriver)
 	}
 	return nil
 }
@@ -120,7 +132,7 @@ func writeConfigFile(
 	//cfg.Section("").Key("appname").Comment = "zbxtable"
 	// migrate httpport
 	if httpport == "" {
-		cfg.Section("").NewKey("httpport", "8088")
+		cfg.Section("").NewKey("httpport", "8089")
 	} else {
 		cfg.Section("").NewKey("httpport", httpport)
 	}
@@ -148,13 +160,9 @@ func writeConfigFile(
 	cfg.Section("").NewKey("dbtype", dbtype)
 	cfg.Section("").NewKey("dbhost", dbhost)
 	cfg.Section("").NewKey("dbuser", dbuser)
-	var newpass string
-	if strings.Contains(dbpass, `#`) || strings.Contains(dbpass, `$`) || strings.Contains(dbpass, `!`) {
-		newpass = strings.ReplaceAll(dbpass, "'", "")
-	} else {
-		newpass = dbpass
-	}
-	cfg.Section("").NewKey("dbpass", newpass)
+	// Preserve passwords verbatim. Removing apostrophes or shell-like symbols
+	// silently changes valid database credentials and makes login fail later.
+	cfg.Section("").NewKey("dbpass", dbpass)
 	cfg.Section("").NewKey("dbname", dbname)
 	cfg.Section("").NewKey("dbport", dbport)
 	// zabbix info（安装阶段不再写入，用户可在系统设置里管理多个 Zabbix）
@@ -171,7 +179,7 @@ func writeConfigFile(
 	if err != nil {
 		return err
 	}
-	return nil
+	return os.Chmod("./config/app.conf", 0600)
 }
 
 // InstallStatusResponse 安装状态响应
@@ -240,8 +248,8 @@ func CheckDatabase(c *gin.Context) {
 	}
 
 	// 验证必需字段
-	if req.DBHost == "" || req.DBUser == "" || req.DBPass == "" || req.DBPort == "" {
-		response.BadRequest(c, "参数错误: 数据库需要 dbhost, dbuser, dbpass, dbport")
+	if req.DBHost == "" || req.DBUser == "" || req.DBPort == "" {
+		response.BadRequest(c, "参数错误：数据库需要 dbhost、dbuser、dbport；dbpass 可以为空")
 		return
 	}
 
@@ -301,8 +309,8 @@ func DoInstall(c *gin.Context) {
 	}
 
 	// 验证必需字段
-	if req.DBHost == "" || req.DBUser == "" || req.DBPass == "" || req.DBPort == "" {
-		response.BadRequest(c, "参数错误: 数据库需要 dbhost, dbuser, dbpass, dbport")
+	if req.DBHost == "" || req.DBUser == "" || req.DBPort == "" {
+		response.BadRequest(c, "参数错误：数据库需要 dbhost、dbuser、dbport；dbpass 可以为空")
 		return
 	}
 
@@ -330,7 +338,7 @@ func DoInstall(c *gin.Context) {
 
 	// 设置默认值
 	if req.HTTPPort == "" {
-		req.HTTPPort = "8088"
+		req.HTTPPort = "8089"
 	}
 	if req.RunMode == "" {
 		req.RunMode = "prod"
@@ -368,7 +376,7 @@ func DoInstall(c *gin.Context) {
 	if strings.Contains(currentPort, ":") {
 		currentPort = strings.Split(currentPort, ":")[1]
 	} else {
-		currentPort = "8088" // 默认端口
+		currentPort = "8089" // 默认端口
 	}
 	portChanged := req.HTTPPort != "" && req.HTTPPort != currentPort
 

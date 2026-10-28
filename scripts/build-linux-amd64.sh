@@ -24,6 +24,7 @@ LDFLAGS="-X main.version=${VERSION} -X main.gitHash=${GIT_HASH} -X main.buildTim
 
 mkdir -p "${DIST_DIR}"
 echo 'Building frontend bundle...'
+node "${ROOT_DIR}/scripts/patch-frontend-zabbix.js" "${FRONTEND_DIR}"
 (
   cd "${FRONTEND_DIR}"
   if command -v yarn >/dev/null 2>&1 && [[ -f yarn.lock ]]; then

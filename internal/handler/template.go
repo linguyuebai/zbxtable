@@ -7,31 +7,21 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// GetAllTemplateList 获取所有模板列表
+// GetTemplateList returns templates from the selected or default Zabbix instance.
 func GetTemplateList(c *gin.Context) {
-	zidStr := c.Query("zid")
-	if zidStr == "" {
-		response.InternalError(c, "实例ID为空")
-		return
-	}
-	list, err := model.TemplateListGetFromInstance(zidStr)
+	list, err := model.TemplateListGetFromInstance(c.Query("zid"))
 	if err != nil {
-		response.InternalError(c, "获取模版错误")
+		response.InternalError(c, "获取模板失败: "+err.Error())
 		return
 	}
 	response.Success(c, list)
 }
 
-// GetItemByTemplateID 根据模板ID获取监控项
+// GetItemByTemplateID returns monitoring items for a template.
 func GetItemByTemplateID(c *gin.Context) {
-	templateid := c.Param("templateid")
-	zidStr := c.Query("zid")
-	if zidStr == "" {
-		response.InternalError(c, "缺少实例ID")
-	}
-	list, err := model.TemplateByItemFromInstance(zidStr, templateid)
+	list, err := model.TemplateByItemFromInstance(c.Query("zid"), c.Param("templateid"))
 	if err != nil {
-		response.InternalError(c, "获取模版错误")
+		response.InternalError(c, "获取模板监控项失败: "+err.Error())
 		return
 	}
 	response.Success(c, list)

@@ -159,7 +159,7 @@ func TemplateListGet() ([]TemplateByItemList, error) {
 func TemplateListGetFromInstance(id string) ([]TemplateByItemList, error) {
 	// 如果没有指定实例ID，使用全局API
 	var list []TemplateByItemList
-	zid, err := strconv.Atoi(id)
+	zid, err := ResolveZID(id)
 	if err != nil {
 		return list, err
 	}
@@ -211,7 +211,7 @@ func TemplateByItem(templateid string) ([]TemplateByItemList, error) {
 func TemplateByItemFromInstance(zid, templateid string) ([]TemplateByItemList, error) {
 	var list []TemplateByItemList
 	// 尝试将 instanceID 转换为 int64（数据库ID）
-	id, err := strconv.Atoi(zid)
+	id, err := ResolveZID(zid)
 	if err != nil {
 		return list, err
 	}

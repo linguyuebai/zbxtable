@@ -2,9 +2,11 @@ package model
 
 import (
 	"fmt"
+	"net"
 	"net/url"
 	"time"
 
+	mysqlDriver "github.com/go-sql-driver/mysql"
 	"gorm.io/driver/mysql"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
@@ -24,19 +26,12 @@ func InitGormDB(dbtype, dbhost, dbuser, dbpass, dbname, dbport string, runmode s
 	switch dbtype {
 	case "mysql":
 		// 使用 loc=Local 让数据库使用服务器本地时区
-		dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?parseTime=true&loc=Local&timeout=5s&charset=utf8&collation=utf8_general_ci",
-			dbuser, dbpass, dbhost, dbport, dbname)
-		dialector = mysql.Open(dsn)
+		dialector = mysql.Open(mysqlConfigDSN(dbuser, dbpass, dbhost, dbport, dbname))
 	case "postgresql":
-		// PostgreSQL 使用 timezone=Local 参数
-		dsn := fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=disable&TimeZone=Asia/Shanghai",
-			dbuser, url.QueryEscape(dbpass), dbhost, dbport, dbname)
-		dialector = postgres.Open(dsn)
+		dialector = postgres.Open(postgresConfigDSN(dbuser, dbpass, dbhost, dbport, dbname))
 	default:
 		// 默认使用 MySQL，使用 loc=Local 让数据库使用服务器本地时区
-		dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?parseTime=true&loc=Local&timeout=5s&charset=utf8&collation=utf8_general_ci",
-			dbuser, dbpass, dbhost, dbport, dbname)
-		dialector = mysql.Open(dsn)
+		dialector = mysql.Open(mysqlConfigDSN(dbuser, dbpass, dbhost, dbport, dbname))
 	}
 
 	// 配置日志级别
@@ -73,6 +68,31 @@ func InitGormDB(dbtype, dbhost, dbuser, dbpass, dbname, dbport string, runmode s
 	}
 
 	return nil
+}
+
+func postgresConfigDSN(user, password, host, port, database string) string {
+	connectionURL := url.URL{
+		Scheme: "postgres",
+		User:   url.UserPassword(user, password),
+		Host:   net.JoinHostPort(host, port),
+		Path:   "/" + database,
+	}
+	query := connectionURL.Query()
+	query.Set("sslmode", "disable")
+	query.Set("TimeZone", "Asia/Shanghai")
+	connectionURL.RawQuery = query.Encode()
+	return connectionURL.String()
+}
+
+func mysqlConfigDSN(user, password, host, port, database string) string {
+	config := mysqlDriver.Config{
+		User: user, Passwd: password, Net: "tcp",
+		Addr: net.JoinHostPort(host, port), DBName: database,
+		ParseTime: true, Loc: time.Local, Timeout: 5 * time.Second,
+		Collation: "utf8_general_ci",
+		Params:    map[string]string{"charset": "utf8"},
+	}
+	return config.FormatDSN()
 }
 
 // AutoMigrate 自动迁移数据库表

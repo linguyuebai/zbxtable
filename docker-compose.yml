@@ -1,61 +1,23 @@
-version: '3.8'
-
 services:
-  # MySQL 数据库
-  mysql:
-    image: mysql:8.0
-    container_name: zbxtable-mysql
-    restart: always
-    environment:
-      MYSQL_ROOT_PASSWORD: rootpassword
-      MYSQL_DATABASE: zbxtable
-      MYSQL_USER: zbxtable
-      MYSQL_PASSWORD: zbxtablepwd123
-      TZ: Asia/Shanghai
-    volumes:
-      - mysql_data:/var/lib/mysql
-      - ./deployments/docker/mysql/init.sql:/docker-entrypoint-initdb.d/init.sql
-    ports:
-      - "3306:3306"
-    networks:
-      - zbxtable-network
-    command: 
-      - --character-set-server=utf8mb4
-      - --collation-server=utf8mb4_unicode_ci
-      - --default-authentication-plugin=mysql_native_password
-
-  # ZbxTable 应用
   zbxtable:
     build:
-      context: ../
-      dockerfile: zbxtable/Dockerfile
-    container_name: zbxtable-app
-    restart: always
+      context: .
+      dockerfile: deployments/docker/Dockerfile.release
+    image: zbxtable:local
+    container_name: zbxtable
+    restart: unless-stopped
     environment:
       TZ: Asia/Shanghai
+    ports:
+      - "${ZBXTABLE_HTTP_PORT:-8089}:8089"
     volumes:
       - ./config:/app/config
       - ./log:/app/log
       - ./download:/app/download
-      - ./template:/app/template
-    ports:
-      - "8088:8088"
-    networks:
-      - zbxtable-network
-    depends_on:
-      - mysql
-    healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8088/"]
-      interval: 30s
-      timeout: 3s
-      retries: 3
-      start_period: 40s
+      - ./upload:/app/upload
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
-volumes:
-  mysql_data:
-    driver: local
-
-networks:
-  zbxtable-network:
-    driver: bridge
-
+# ZbxTable creates tables with the `zbxtable_` prefix in the database
+# configured in config/app.conf. Point it at the existing Zabbix database
+# when sharing a database; do not add a second MySQL service here.
