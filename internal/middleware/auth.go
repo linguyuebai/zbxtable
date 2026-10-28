@@ -114,6 +114,18 @@ func CheckInstallStatusMiddleware() gin.HandlerFunc {
 
 		// 检查安装状态
 		confPath := "./config/app.conf"
+		// The browser may call /v1/login while the first-run wizard is open.
+		// Stop that request before handlers touch model.DB (which is nil until
+		// database initialization), and tell the frontend to continue at /install.
+		if _, statErr := os.Stat(confPath); statErr != nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{
+				"code":     503,
+				"message":  "服务暂时不可用，请先完成安装配置",
+				"redirect": "/install",
+			})
+			c.Abort()
+			return
+		}
 		_, err := os.Stat(confPath)
 		if err != nil {
 			// 配置文件不存在：可能是首次安装或后台服务未启动
