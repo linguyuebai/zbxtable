@@ -1,100 +1,178 @@
-package v1
+package model
 
 import (
-	"io"
+	stdjson "encoding/json"
+	"net/http"
 	"net/http/httptest"
-	"regexp"
 	"strings"
 	"testing"
 )
 
-func TestEmbeddedFrontendJavaScriptIsServed(t *testing.T) {
-	router := InitRouter()
-	root := httptest.NewRecorder()
-	router.ServeHTTP(root, httptest.NewRequest("GET", "/", nil))
-	if root.Code != 200 {
-		t.Fatalf("GET / status = %d, want 200", root.Code)
+func TestNormalizeZabbixWebURL(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{" https://zabbix.example/zabbix/ ", "https://zabbix.example/zabbix"},
+		{"https://zabbix.example/zabbix/api_jsonrpc.php", "https://zabbix.example/zabbix"},
+		{"http://127.0.0.1:8080", "http://127.0.0.1:8080"},
+		{"zabbix.example", ""},
+		{"ftp://zabbix.example", ""},
+		{"https://user:pass@zabbix.example", ""},
+		{"https://zabbix.example/zabbix?view=1", ""},
 	}
-	if root.Header().Get("Cache-Control") == "" || !strings.Contains(root.Header().Get("Cache-Control"), "no-store") {
-		t.Fatalf("GET / Cache-Control = %q, want no-store", root.Header().Get("Cache-Control"))
+	for _, test := range tests {
+		if got := normalizeZabbixWebURL(test.input); got != test.want {
+			t.Errorf("normalizeZabbixWebURL(%q) = %q, want %q", test.input, got, test.want)
+		}
 	}
+}
 
-	script := regexp.MustCompile(`src=["']([^"']+\.js)["']`).FindStringSubmatch(root.Body.String())
-	if len(script) < 2 {
-		t.Fatal("index.html does not contain a JavaScript entrypoint")
-	}
-	asset := httptest.NewRecorder()
-	router.ServeHTTP(asset, httptest.NewRequest("GET", script[1], nil))
-	if asset.Code != 200 {
-		t.Fatalf("GET %s status = %d, want 200", script[1], asset.Code)
-	}
-	body, err := io.ReadAll(asset.Body)
+func TestTestZabbixInstanceConfigUsesJSONRPCWithoutGETProbe(t *testing.T) {
+	var methods []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Errorf("request method = %s, want POST", r.Method)
+		}
+		if r.URL.Path != "/zabbix/api_jsonrpc.php" {
+			http.NotFound(w, r)
+			return
+		}
+		var request struct {
+			Method string `json:"method"`
+		}
+		if err := stdjson.NewDecoder(r.Body).Decode(&request); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		methods = append(methods, request.Method)
+		w.Header().Set("Content-Type", "application/json")
+		switch request.Method {
+		case "APIInfo.version":
+			_, _ = w.Write([]byte(`{"jsonrpc":"2.0","result":"7.4.0","id":1}`))
+		case "user.login":
+			_, _ = w.Write([]byte(`{"jsonrpc":"2.0","result":"api-token","id":1}`))
+		case "host.get":
+			_, _ = w.Write([]byte(`{"jsonrpc":"2.0","result":[],"id":1}`))
+		default:
+			http.Error(w, "unexpected method", http.StatusBadRequest)
+		}
+	}))
+	defer server.Close()
+
+	version, err := TestZabbixInstanceConfig(server.URL+"/zabbix/api_jsonrpc.php", "Admin", "secret", "")
 	if err != nil {
-		t.Fatalf("read JavaScript response: %v", err)
+		t.Fatalf("TestZabbixInstanceConfig() error = %v", err)
 	}
-	if len(body) == 0 || strings.Contains(strings.ToLower(string(body)), "<html") {
-		t.Fatalf("JavaScript asset returned empty content or HTML fallback")
+	if version != "7.4.0" {
+		t.Fatalf("version = %q, want 7.4.0", version)
 	}
-
-	missingAsset := httptest.NewRecorder()
-	router.ServeHTTP(missingAsset, httptest.NewRequest("GET", "/js/missing-asset.js", nil))
-	if missingAsset.Code != 404 {
-		t.Fatalf("missing JavaScript asset status = %d, want 404", missingAsset.Code)
-	}
-	if strings.Contains(strings.ToLower(missingAsset.Body.String()), "<html") {
-		t.Fatal("missing JavaScript asset incorrectly returned the SPA document")
+	if len(methods) != 3 || methods[0] != "APIInfo.version" || methods[1] != "user.login" || methods[2] != "host.get" {
+		t.Fatalf("JSON-RPC methods = %v, want APIInfo.version, user.login, host.get", methods)
 	}
 }
 
-func TestServiceWorkerIsServedWithoutBrowserCache(t *testing.T) {
-	router := InitRouter()
-	response := httptest.NewRecorder()
-	router.ServeHTTP(response, httptest.NewRequest("GET", "/service-worker.js", nil))
-	if response.Code != 200 {
-		t.Fatalf("GET /service-worker.js status = %d, want 200", response.Code)
-	}
-	if response.Header().Get("Cache-Control") == "" || !strings.Contains(response.Header().Get("Cache-Control"), "no-store") {
-		t.Fatalf("service worker Cache-Control = %q, want no-store", response.Header().Get("Cache-Control"))
+func TestTestZabbixInstanceConfigValidatesTokenPermissions(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request struct {
+			Method string `json:"method"`
+		}
+		if err := stdjson.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Errorf("decode JSON-RPC request: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		switch request.Method {
+		case "APIInfo.version":
+			_, _ = w.Write([]byte(`{"jsonrpc":"2.0","result":"7.4.0","id":1}`))
+		case "host.get":
+			_, _ = w.Write([]byte(`{"jsonrpc":"2.0","error":{"code":-32602,"message":"Invalid params.","data":"Not authorized."},"id":2}`))
+		default:
+			t.Errorf("unexpected JSON-RPC method: %s", request.Method)
+		}
+	}))
+	defer server.Close()
+
+	_, err := TestZabbixInstanceConfig(server.URL, "", "", "invalid-token")
+	if err == nil || !strings.Contains(err.Error(), "Not authorized") {
+		t.Fatalf("error = %v, want unauthorized-token error", err)
 	}
 }
 
-func TestInstallPageIsServedByBrowserRoute(t *testing.T) {
-	router := InitRouter()
-	page := httptest.NewRecorder()
-	router.ServeHTTP(page, httptest.NewRequest("GET", "/install", nil))
-	if page.Code != 200 {
-		t.Fatalf("GET /install status = %d, want 200", page.Code)
-	}
-	if !strings.Contains(strings.ToLower(page.Body.String()), "<!doctype") {
-		t.Fatal("GET /install did not return the embedded HTML document")
-	}
+func TestTestZabbixInstanceConfigSupportsZabbix74PasswordAndToken(t *testing.T) {
+	t.Run("password uses username and authenticates host.get", func(t *testing.T) {
+		var loginParams map[string]interface{}
+		var hostAuthorization string
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			var request struct {
+				Method string                 `json:"method"`
+				Params map[string]interface{} `json:"params"`
+			}
+			if err := stdjson.NewDecoder(r.Body).Decode(&request); err != nil {
+				t.Fatalf("decode JSON-RPC request: %v", err)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			switch request.Method {
+			case "APIInfo.version":
+				_, _ = w.Write([]byte(`{"jsonrpc":"2.0","result":"7.4.0","id":1}`))
+			case "user.login":
+				loginParams = request.Params
+				_, _ = w.Write([]byte(`{"jsonrpc":"2.0","result":"session-token","id":2}`))
+			case "host.get":
+				hostAuthorization = r.Header.Get("Authorization")
+				_, _ = w.Write([]byte(`{"jsonrpc":"2.0","result":[{"hostid":"10084"}],"id":3}`))
+			default:
+				t.Errorf("unexpected JSON-RPC method: %s", request.Method)
+			}
+		}))
+		defer server.Close()
 
-	status := httptest.NewRecorder()
-	router.ServeHTTP(status, httptest.NewRequest("GET", "/install/status", nil))
-	if status.Code != 200 {
-		t.Fatalf("GET /install/status status = %d, want 200", status.Code)
-	}
+		version, err := TestZabbixInstanceConfig(server.URL, "Admin", "zabbix", "")
+		if err != nil {
+			t.Fatalf("password connection test failed: %v", err)
+		}
+		if version != "7.4.0" || loginParams["username"] != "Admin" || loginParams["password"] != "zabbix" {
+			t.Fatalf("version/login params = %q/%v", version, loginParams)
+		}
+		if hostAuthorization != "Bearer session-token" {
+			t.Fatalf("host.get Authorization = %q, want Bearer session-token", hostAuthorization)
+		}
+	})
+
+	t.Run("token authenticates host.get with bearer header", func(t *testing.T) {
+		var hostAuthorization string
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			var request struct {
+				Method string `json:"method"`
+			}
+			if err := stdjson.NewDecoder(r.Body).Decode(&request); err != nil {
+				t.Fatalf("decode JSON-RPC request: %v", err)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			switch request.Method {
+			case "APIInfo.version":
+				_, _ = w.Write([]byte(`{"jsonrpc":"2.0","result":"7.4.0","id":1}`))
+			case "host.get":
+				hostAuthorization = r.Header.Get("Authorization")
+				_, _ = w.Write([]byte(`{"jsonrpc":"2.0","result":[{"hostid":"10084"}],"id":2}`))
+			default:
+				t.Errorf("unexpected JSON-RPC method: %s", request.Method)
+			}
+		}))
+		defer server.Close()
+
+		version, err := TestZabbixInstanceConfig(server.URL+"/zabbix/api_jsonrpc.php", "", "", "api-token")
+		if err != nil {
+			t.Fatalf("token connection test failed: %v", err)
+		}
+		if version != "7.4.0" || hostAuthorization != "Bearer api-token" {
+			t.Fatalf("version/Authorization = %q/%q", version, hostAuthorization)
+		}
+	})
 }
 
-func TestManagerInfoEndpointIsRegisteredAndProtected(t *testing.T) {
-	router := InitRouter()
-	response := httptest.NewRecorder()
-	request := httptest.NewRequest("POST", "/v1/manager/info", strings.NewReader(`{}`))
-	router.ServeHTTP(response, request)
-	if response.Code != 503 {
-		t.Fatalf("POST /v1/manager/info HTTP status = %d, want 503 before installation", response.Code)
-	}
-	if !strings.Contains(response.Body.String(), `"redirect":"/install"`) {
-		t.Fatalf("POST /v1/manager/info response = %s, want install redirect", response.Body.String())
-	}
-}
-
-func TestLoginEndpointIsRegistered(t *testing.T) {
-	router := InitRouter()
-	response := httptest.NewRecorder()
-	request := httptest.NewRequest("POST", "/v1/login", strings.NewReader(`{invalid-json`))
-	router.ServeHTTP(response, request)
-	if response.Code != 503 || !strings.Contains(response.Body.String(), `"redirect":"/install"`) {
-		t.Fatalf("POST /v1/login before installation returned HTTP %d: %s", response.Code, response.Body.String())
+func TestTestZabbixInstanceConfigReturnsActionableAuthenticationError(t *testing.T) {
+	_, err := TestZabbixInstanceConfig("https://zabbix.example", "", "", "")
+	if err == nil || !strings.Contains(err.Error(), "username and password") {
+		t.Fatalf("error = %v, want missing-credentials guidance", err)
 	}
 }
