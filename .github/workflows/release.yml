@@ -51,9 +51,9 @@ jobs:
           npm ci
           npm run build
           test -s web/index.html
-          rm -rf ../api/v1/web/web
-          mkdir -p ../api/v1/web/web
-          cp -R web/. ../api/v1/web/web/
+          rm -rf "$GITHUB_WORKSPACE/api/v1/web/web"
+          mkdir -p "$GITHUB_WORKSPACE/api/v1/web/web"
+          cp -R "$GITHUB_WORKSPACE/zbxtable-web/web/." "$GITHUB_WORKSPACE/api/v1/web/web/"
 
       - name: Verify embedded frontend assets
         run: |
