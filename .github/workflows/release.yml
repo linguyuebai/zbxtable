@@ -23,22 +23,6 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Checkout frontend repository
-        uses: actions/checkout@v4
-        with:
-          repository: canghai908/zbxtable-web
-          path: zbxtable-web
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          cache: npm
-          cache-dependency-path: zbxtable-web/package-lock.json
-
-      - name: Patch Zabbix instance integration UI
-        run: node scripts/patch-frontend-zabbix.js zbxtable-web
-
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
@@ -46,30 +30,11 @@ jobs:
           cache: true
           cache-dependency-path: go.sum
 
-      - name: Build frontend
-        working-directory: ./zbxtable-web
-        env:
-          NODE_OPTIONS: --openssl-legacy-provider
-          # 前端版本号与发布 tag 保持一致。前端仓库为浅克隆且不含 tag，
-          # 其 git describe 无法工作，故通过 VERSION 显式注入（vue.config.js 优先读取）。
-          VERSION: ${{ github.ref_name }}
+      - name: Verify embedded frontend assets
         run: |
-          echo "📦 Building frontend (version: ${VERSION})..."
-          npm ci
-          npm run build
-          test -f web/index.html
-          echo "✓ Frontend build complete"
-
-      - name: Sync frontend assets into embedded web directory
-        run: |
-          echo "📋 Syncing frontend assets..."
-          rm -rf api/v1/web/web
-          mkdir -p api/v1/web/web
-          cp -R zbxtable-web/web/. api/v1/web/web/
-          test -f api/v1/web/web/index.html
-          echo "✓ Frontend assets synced"
-
-      - name: Resolve version
+          test -s api/v1/web/web/index.html
+          test -n "$(find api/v1/web/web/js -type f -name '*.js' -size +0c -print -quit)"
+          echo 'Embedded frontend assets are present and will be included in the source archive.'\n\n      - name: Resolve version
         id: version
         run: |
           version="${GITHUB_REF#refs/tags/}"
