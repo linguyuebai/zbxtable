@@ -26,6 +26,7 @@ NO_FIREWALL=0
 INTERACTIVE=0
 MENU_PURGE=0
 ASSUME_YES=0
+PREFLIGHT_ONLY=0
 STEP=0
 SERVICE_WAS_ACTIVE=0
 INSTALL_SUCCEEDED=0
@@ -64,6 +65,7 @@ Usage: bash install-release.sh [options]
   --go-proxy=URLS       Go module proxy chain for source builds
   --go-download-base=URL Go archive mirror directory
   --no-firewall         Do not add the web port to an active firewall
+  --check               Check OS, architecture, dependencies, ports and network without changes
   --menu                Show the interactive install/uninstall menu (default without options)
   --repair              Repair the current systemd or Docker installation using the latest release
   --update              Update the current installation to the latest release while preserving configuration
@@ -91,6 +93,7 @@ EOF
     --go-proxy=*) GO_PROXY="${arg#*=}" ;;
     --go-download-base=*) GO_DOWNLOAD_BASE="${arg#*=}" ;;
     --no-firewall) NO_FIREWALL=1 ;;
+    --check) PREFLIGHT_ONLY=1 ;;
     --menu) INTERACTIVE=1 ;;
     --repair) REPAIR=1 ;;
     --update) REPAIR=1 ;;
@@ -160,13 +163,13 @@ if [[ "$#" == 0 || "$INTERACTIVE" == 1 ]]; then
     [[ "$CONFIRM_UNINSTALL" == DELETE ]] || { printf '已取消卸载。\n' > /dev/tty; exit 0; }
     ASSUME_YES=1
   elif [[ "$REPAIR" != 1 ]]; then
-    printf '选择版本：\n  1) 最新正式 Release（latest）\n  2) 固定版本 v3.0.9\n  3) 输入其他版本标签\n请选择 [1-3]（默认 1）: ' > /dev/tty
+    printf '选择版本：\n  1) 最新正式 Release（latest）\n  2) 固定版本 v3.0.12\n  3) 输入其他版本标签\n请选择 [1-3]（默认 1）: ' > /dev/tty
     IFS= read -r MENU_VERSION_CHOICE < /dev/tty || fail 'Could not read version selection.'
     case "${MENU_VERSION_CHOICE:-1}" in
       1) VERSION=latest ;;
-      2) VERSION=v3.0.9 ;;
+      2) VERSION=v3.0.12 ;;
       3)
-        printf '请输入版本标签（例如 v3.0.9）: ' > /dev/tty
+        printf '请输入版本标签（例如 v3.0.12）: ' > /dev/tty
         IFS= read -r VERSION < /dev/tty || fail 'Could not read version tag.'
         [[ -n "$VERSION" ]] || fail 'Version tag cannot be empty.'
         ;;
@@ -205,7 +208,75 @@ fi
 export ZBXTABLE_GOPROXY="$GO_PROXY"
 export ZBXTABLE_GO_DOWNLOAD_BASE="$GO_DOWNLOAD_BASE"
 
-command -v curl >/dev/null 2>&1 || { echo 'Required command not found: curl' >&2; exit 1; }
+preflight_host() {
+  local os_id arch package_manager available_kb command_name
+  [[ "$(uname -s)" == Linux ]] || fail "This installer supports Linux; detected $(uname -s)."
+  [[ -r /etc/os-release ]] || fail 'Cannot identify Linux distribution: /etc/os-release is missing.'
+  # shellcheck disable=SC1091
+  . /etc/os-release
+  os_id="${PRETTY_NAME:-${ID:-Linux}}"
+  arch="$(uname -m)"
+  case "$arch" in
+    x86_64|amd64|aarch64|arm64) ;;
+    *) fail "Unsupported architecture '$arch'; supported architectures: x86_64 and aarch64." ;;
+  esac
+  package_manager=none
+  for command_name in apt-get dnf yum zypper apk; do
+    if command -v "$command_name" >/dev/null 2>&1; then package_manager="$command_name"; break; fi
+  done
+  if [[ "$INSTALL_DEPS" == 1 && "$package_manager" == none ]]; then
+    fail 'No supported package manager found (apt-get, dnf, yum, zypper or apk).'
+  fi
+  if ! command -v curl >/dev/null 2>&1; then
+    if [[ "$PREFLIGHT_ONLY" == 1 ]]; then warn 'curl is missing; Release assets cannot be downloaded.'; else fail 'curl is required to download Release assets. Install curl and rerun the installer.'; fi
+  fi
+  for command_name in tar sha256sum python3 awk sed grep; do
+    if ! command -v "$command_name" >/dev/null 2>&1; then
+      if [[ "$PREFLIGHT_ONLY" == 1 || "$INSTALL_DEPS" == 1 ]]; then
+        warn "Required command is missing: $command_name"
+      else
+        fail "Required command is missing: $command_name. Use --install-deps or install it manually."
+      fi
+    fi
+  done
+  log "Environment: $os_id; kernel $(uname -r); architecture $arch; package manager $package_manager"
+  available_kb="$(df -Pk "$(dirname "$INSTALL_ROOT")" 2>/dev/null | awk 'NR==2 {print $4}')"
+  if [[ "$available_kb" =~ ^[0-9]+$ ]]; then
+    log "Available disk space: $((available_kb / 1024)) MiB at $(dirname "$INSTALL_ROOT")"
+    (( available_kb >= 1048576 )) || warn 'Less than 1 GiB is available; installation or Docker image build may run out of disk space.'
+  else
+    warn "Could not determine free disk space at $(dirname "$INSTALL_ROOT")."
+  fi
+  if command -v systemctl >/dev/null 2>&1 && [[ -d /run/systemd/system ]]; then
+    log 'Service manager: systemd is running.'
+  elif [[ "$DOCKER" != 1 ]]; then
+    warn 'systemd is not running; system service registration will be unavailable.'
+  fi
+  if [[ "$DOCKER" == 1 ]]; then
+    if command -v docker >/dev/null 2>&1; then
+      docker info >/dev/null 2>&1 || warn 'Docker is installed but its daemon is not responding.'
+    elif [[ "$DOCKER_INSTALL" != 1 ]]; then
+      warn 'Docker is missing; use --docker-install to install it automatically.'
+    fi
+  fi
+  if command -v ss >/dev/null 2>&1 && ss -H -ltn "sport = :$DOCKER_PORT" | grep -q .; then
+    warn "TCP port $DOCKER_PORT is already listening; select another --port if needed."
+  else
+    log "TCP port $DOCKER_PORT is available or cannot be checked."
+  fi
+  if command -v curl >/dev/null 2>&1 && curl --connect-timeout 5 --max-time 10 -fsS -o /dev/null https://api.github.com/rate_limit; then
+    log 'GitHub API is reachable.'
+  else
+    warn 'GitHub API is unreachable; Release metadata and assets may fail to download.'
+  fi
+  if [[ "$PREFLIGHT_ONLY" == 1 ]]; then
+    log 'Preflight complete; no files or services were changed.'
+    exit 0
+  fi
+}
+
+step 'Checking the target environment'
+preflight_host
 TEMP_DIR="$(mktemp -d)"
 cleanup() {
   local exit_code=$?
@@ -273,12 +344,12 @@ if [[ "$INSTALL_DEPS" == 1 && "$DOCKER" != 1 ]]; then
   fi
   log "Preparing Linux environment from $BOOTSTRAP_URL"
   bootstrap_ok=0
-  if curl --connect-timeout 10 --max-time 60 -fsSL "$BOOTSTRAP_URL" -o "$TEMP_DIR/bootstrap-linux.sh"; then
+  if curl --connect-timeout 10 --max-time 60 --retry 3 --retry-all-errors --retry-delay 2 -fsSL "$BOOTSTRAP_URL" -o "$TEMP_DIR/bootstrap-linux.sh"; then
     bootstrap_ok=1
   else
     warn 'bootstrap-linux.sh is not present in the release asset; trying repository source.'
     for source_url in "${BOOTSTRAP_SOURCES[@]}"; do
-      if curl --connect-timeout 10 --max-time 60 -fsSL "$source_url" -o "$TEMP_DIR/bootstrap-linux.sh"; then
+      if curl --connect-timeout 10 --max-time 60 --retry 2 --retry-all-errors --retry-delay 2 -fsSL "$source_url" -o "$TEMP_DIR/bootstrap-linux.sh"; then
         bootstrap_ok=1
         break
       fi
@@ -296,7 +367,7 @@ for command in tar sha256sum python3; do command -v "$command" >/dev/null 2>&1 |
 if [[ "$VERSION" == latest ]]; then API_URL="https://api.github.com/repos/$REPOSITORY/releases/latest"; else API_URL="https://api.github.com/repos/$REPOSITORY/releases/tags/$VERSION"; fi
 release_json="$TEMP_DIR/release.json"
 log "Checking release metadata: $API_URL"
-curl -fsSL -H 'User-Agent: zbxtable-installer' "$API_URL" -o "$release_json"
+curl --connect-timeout 15 --max-time 90 --retry 3 --retry-all-errors --retry-delay 2 -fsSL -H 'User-Agent: zbxtable-installer' "$API_URL" -o "$release_json" || fail "Unable to read Release metadata from $API_URL; check DNS, proxy and outbound HTTPS access."
 ARCHIVE_NAME="$(python3 - "$release_json" <<'PY'
 import json, sys
 data=json.load(open(sys.argv[1], encoding='utf-8'))
@@ -316,11 +387,11 @@ PY
 )"
 ARCHIVE="$TEMP_DIR/$ARCHIVE_NAME"
 step "Downloading $ARCHIVE_NAME"
-curl -fL "$BASE_URL" -o "$ARCHIVE"
+curl --connect-timeout 15 --max-time 600 --retry 3 --retry-all-errors --retry-delay 2 -fL "$BASE_URL" -o "$ARCHIVE" || fail "Unable to download the source archive: $BASE_URL"
 [[ -s "$ARCHIVE" ]] || fail 'Downloaded archive is empty.'
 if [[ "$SKIP_CHECKSUM" != 1 ]]; then
   HASH_URL="${BASE_URL}.sha256"
-  curl -fsSL "$HASH_URL" -o "$ARCHIVE.sha256" || { echo 'Release checksum is missing; refusing an unverified installation.' >&2; exit 1; }
+  curl --connect-timeout 15 --max-time 90 --retry 3 --retry-all-errors --retry-delay 2 -fsSL "$HASH_URL" -o "$ARCHIVE.sha256" || { echo 'Release checksum is missing; refusing an unverified installation.' >&2; exit 1; }
   (cd "$TEMP_DIR" && sha256sum -c "$(basename "$ARCHIVE.sha256")")
   log 'SHA256 verification passed.'
 else

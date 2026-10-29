@@ -3,6 +3,7 @@ set -Eeuo pipefail
 
 GO_VERSION="${ZBXTABLE_GO_VERSION:-1.24.0}"
 GO_DOWNLOAD_BASE="${ZBXTABLE_GO_DOWNLOAD_BASE:-https://go.dev/dl}"
+export GOTOOLCHAIN=local
 log() { printf '[zbxtable-env] %s\n' "$*"; }
 fail() { printf '[zbxtable-env] ERROR: %s\n' "$*" >&2; exit 1; }
 
@@ -93,15 +94,28 @@ if [[ "$go_ok" != 1 ]]; then
   downloaded=0
   for url in "${urls[@]}"; do
     log "Installing Go ${GO_VERSION} from $url"
-    if curl --connect-timeout 10 --max-time 180 -fsSL "$url" -o "$tmp/go.tgz"; then
+    if curl --connect-timeout 10 --max-time 180 --retry 2 --retry-all-errors --retry-delay 2 -fsSL "$url" -o "$tmp/go.tgz"; then
       downloaded=1
       break
     fi
     log "Go download failed from $url; trying the next mirror."
   done
   [[ "$downloaded" == 1 ]] || fail "Unable to download Go ${GO_VERSION}. Set ZBXTABLE_GO_DOWNLOAD_BASE to an accessible mirror."
-  rm -rf /usr/local/go
-  tar -C /usr/local -xzf "$tmp/go.tgz"
+  if ! tar -tzf "$tmp/go.tgz" | grep -qx 'go/bin/go'; then
+    fail 'Downloaded Go archive is invalid; the existing Go installation was left unchanged.'
+  fi
+  tar -C "$tmp" -xzf "$tmp/go.tgz"
+  [[ -x "$tmp/go/bin/go" ]] || fail 'Go archive extraction did not produce a working binary.'
+  # Prepare the replacement before moving the current toolchain. If extraction
+  # or validation fails, the existing /usr/local/go remains available.
+  rm -rf /usr/local/go.zbxtable-new /usr/local/go.zbxtable-old
+  mv "$tmp/go" /usr/local/go.zbxtable-new
+  if [[ -e /usr/local/go ]]; then mv /usr/local/go /usr/local/go.zbxtable-old; fi
+  if ! mv /usr/local/go.zbxtable-new /usr/local/go; then
+    [[ ! -e /usr/local/go.zbxtable-old ]] || mv /usr/local/go.zbxtable-old /usr/local/go
+    fail 'Could not activate the downloaded Go toolchain; restored the previous installation.'
+  fi
+  rm -rf /usr/local/go.zbxtable-old
   ln -sf /usr/local/go/bin/go /usr/local/bin/go
   ln -sf /usr/local/go/bin/gofmt /usr/local/bin/gofmt
 fi

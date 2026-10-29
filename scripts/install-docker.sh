@@ -86,7 +86,13 @@ if ! command -v docker >/dev/null 2>&1; then
   distro="${ID:-}"
   case "$distro" in
     ubuntu|debian) ;;
-    *) fail "Automatic Docker installation supports Ubuntu/Debian; detected: ${distro:-unknown}" ;;
+    *)
+      case " ${ID_LIKE:-} " in
+        *' ubuntu '*) distro=ubuntu ;;
+        *' debian '*) distro=debian ;;
+        *) fail "Automatic Docker installation supports Ubuntu/Debian and derivatives; detected: ${PRETTY_NAME:-${distro:-unknown}}" ;;
+      esac
+      ;;
   esac
   # An existing Docker CE source may point to a mirror that is mid-sync and
   # causes APT size/hash errors. Normalize that vendor source before updating.
@@ -100,10 +106,17 @@ if ! command -v docker >/dev/null 2>&1; then
   printf 'deb [arch=%s signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/%s %s stable\n' "$(dpkg --print-architecture)" "$distro" "$codename" > /etc/apt/sources.list.d/docker.list
   apt_update_with_docker_mirror_fallback
   apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-  systemctl enable --now docker 2>/dev/null || true
+  if command -v systemctl >/dev/null 2>&1; then
+    systemctl enable --now docker || fail 'Docker packages installed, but the Docker service could not start. Check: systemctl status docker'
+  elif command -v service >/dev/null 2>&1; then
+    service docker start || fail 'Docker packages installed, but the Docker service could not start. Check: service docker status'
+  fi
 fi
 command -v docker >/dev/null 2>&1 || fail 'Docker command is unavailable.'
-docker info >/dev/null 2>&1 || fail 'Docker daemon is not running.'
+if ! docker info >/dev/null 2>&1; then
+  if command -v systemctl >/dev/null 2>&1; then systemctl start docker >/dev/null 2>&1 || true; fi
+  docker info >/dev/null 2>&1 || fail 'Docker daemon is not running. Check: systemctl status docker; journalctl -u docker -n 100 --no-pager'
+fi
 [[ "$PORT" =~ ^[0-9]+$ ]] && (( PORT >= 1 && PORT <= 65535 )) || fail "Invalid port: $PORT"
 [[ -f "$ROOT_DIR/deployments/docker/Dockerfile.release" ]] || fail 'Dockerfile.release is missing.'
 [[ -s "$ROOT_DIR/api/v1/web/web/index.html" ]] || fail 'Embedded frontend is missing from this release.'
@@ -118,7 +131,7 @@ if grep -q '^dbpass=change-me$' "$CONFIG_DIR/app.conf" 2>/dev/null; then
   DB_PASS="${ZBXTABLE_DB_PASS:-}"
   if [[ -z "$DB_PASS" ]]; then
     [[ -r /dev/tty && -w /dev/tty ]] || fail 'Database password is required; set ZBXTABLE_DB_PASS or run from an interactive terminal.'
-    read -r -s -p 'Zabbix database password: ' DB_PASS < /dev/tty
+    read -r -s -p 'Database password for ZbxTable: ' DB_PASS < /dev/tty
     printf '\n'
   fi
   [[ -n "$DB_PASS" ]] || fail 'Database password cannot be empty.'

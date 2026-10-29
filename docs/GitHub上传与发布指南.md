@@ -4,6 +4,8 @@
 
 Ubuntu/Debian 自动安装 Docker 时，如果现有 APT 源配置为正在同步的阿里云 Docker CE 镜像，安装脚本会将该 Docker CE 源切换到官方 `download.docker.com` 地址、清理对应缓存索引并重试更新。其他 APT 源仍报错时，脚本会停止并保留错误，需先修复系统中对应的软件源。
 
+Linux 用户可以在安装前运行 `curl -fsSL https://github.com/linguyuebai/zbxtable/releases/latest/download/install-release.sh | sudo bash -s -- --check`。此检查会报告系统版本、架构、依赖、磁盘、端口、systemd/Docker 服务状态和 GitHub 连通性，不会安装软件或修改服务。
+
 ## 上传前检查
 
 ```powershell

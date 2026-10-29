@@ -3,6 +3,8 @@ ARG RUNTIME_IMAGE=debian:bookworm-slim
 
 FROM ${GO_IMAGE} AS builder
 
+ARG TARGETOS=linux
+ARG TARGETARCH
 ARG GOPROXY=https://goproxy.cn|https://proxy.golang.org|direct
 ENV GOTOOLCHAIN=local GOPROXY=${GOPROXY}
 
@@ -11,7 +13,7 @@ COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
 RUN test -s api/v1/web/web/index.html
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags='-s -w' -o /out/zbxtable ./main.go
+RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath -ldflags='-s -w' -o /out/zbxtable ./main.go
 
 FROM ${RUNTIME_IMAGE}
 ARG APP_UID=10001
