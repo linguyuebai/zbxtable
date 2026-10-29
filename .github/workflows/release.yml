@@ -86,7 +86,9 @@ jobs:
         run: |
           echo "📦 Building release archives..."
           make package
+          ZBXTABLE_VERSION="${GITHUB_REF_NAME}" ./scripts/package-release.sh
           ls -lh dist/releases
+          ls -lh dist/zbxtable-*-source.tar.gz*
 
       - name: Generate checksums
         run: |
@@ -128,3 +130,16 @@ jobs:
           files: |
             dist/releases/*.tar.gz
             dist/releases/SHA256SUMS
+            dist/zbxtable-*-source.tar.gz
+            dist/zbxtable-*-source.tar.gz.sha256
+            scripts/install-release.sh
+            scripts/install-release.ps1
+            scripts/install-release.bat
+            scripts/install.sh
+            scripts/install.ps1
+            scripts/install.bat
+            scripts/bootstrap-linux.sh
+            scripts/install-docker.sh
+            scripts/uninstall.sh
+            scripts/uninstall.ps1
+            scripts/uninstall.bat

@@ -2,9 +2,9 @@ English | [简体中文](./README.zh-CN.md)
 
 # ZbxTable
 
-> Defaults: Web port `8089` and an isolated `zbxtable` database. All ZbxTable-owned tables use the `zbxtable_` prefix, so the application can coexist with an official Zabbix installation.
+> Defaults: Web port `8089` and an isolated `zbxtable_lg` database. All ZbxTable-owned tables use the `zbxtable_` prefix, so the application can coexist with an official Zabbix installation.
 
-New installs should use a separate `zbxtable` database and account. The installer never migrates, drops, or modifies Zabbix native tables such as `hosts`, `items`, `history`, or `events`. To intentionally share the Zabbix database, set `ZBXTABLE_DB_NAME=zabbix` explicitly; the application still creates only its `zbxtable_*` tables.
+New installs should use a separate `zbxtable_lg` database and account. The installer never migrates, drops, or modifies Zabbix native tables such as `hosts`, `items`, `history`, or `events`. To intentionally share the Zabbix database, set `ZBXTABLE_DB_NAME=zabbix` explicitly; the application still creates only its `zbxtable_*` tables.
 
 [![Build and Test](https://github.com/canghai908/zbxtable/actions/workflows/build.yml/badge.svg)](https://github.com/canghai908/zbxtable/actions/workflows/build.yml)
 [![Release](https://github.com/canghai908/zbxtable/actions/workflows/release.yml/badge.svg)](https://github.com/canghai908/zbxtable/actions/workflows/release.yml)
@@ -119,7 +119,7 @@ Suitable for CentOS, Ubuntu, Debian and other Linux systems with automatic confi
 
 ```bash
 # Online installation
-curl -fsSL https://dl.cactifans.com/zbxtable/install.sh | sudo bash
+curl -fsSL https://github.com/linguyuebai/zbxtable/releases/latest/download/install-release.sh | sudo bash
 
 # Or download and install
 wget https://dl.cactifans.com/zbxtable/install.sh

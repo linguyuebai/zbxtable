@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-IMAGE="${ZBXTABLE_DOCKER_IMAGE:-zbxtable:3.0.7}"
+IMAGE="${ZBXTABLE_DOCKER_IMAGE:-zbxtable:latest}"
 CONTAINER="${ZBXTABLE_DOCKER_CONTAINER:-zbxtable}"
 PORT="${ZBXTABLE_HTTP_PORT:-8089}"
 GO_IMAGE="${ZBXTABLE_GO_IMAGE:-golang:1.24-bookworm}"
@@ -91,7 +91,7 @@ if grep -q '^dbpass=change-me$' "$CONFIG_DIR/app.conf" 2>/dev/null; then
   DB_TYPE="${ZBXTABLE_DB_TYPE:-mysql}"
   DB_HOST="${ZBXTABLE_DB_HOST:-host.docker.internal}"
   DB_PORT="${ZBXTABLE_DB_PORT:-3306}"
-  DB_NAME="${ZBXTABLE_DB_NAME:-zbxtable}"
+  DB_NAME="${ZBXTABLE_DB_NAME:-zbxtable_lg}"
   DB_USER="${ZBXTABLE_DB_USER:-zbxtable}"
   DB_PASS="${ZBXTABLE_DB_PASS:-}"
   if [[ -z "$DB_PASS" ]]; then

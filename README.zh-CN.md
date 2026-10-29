@@ -2,11 +2,11 @@
 
 # ZbxTable
 
-> 当前默认值：Web 端口 `8089`，独立数据库 `zbxtable`。ZbxTable 的自有表始终使用 `zbxtable_` 前缀，因此可以与官方 Zabbix 共存。
+> 当前默认值：Web 端口 `8089`，独立数据库 `zbxtable_lg`。ZbxTable 的自有表始终使用 `zbxtable_` 前缀，因此可以与官方 Zabbix 共存。
 
 ### 数据库隔离
 
-新安装建议创建独立的 `zbxtable` 数据库并使用单独账号。安装脚本不会迁移、删除或修改 Zabbix 的 `hosts`、`items`、`history`、`events` 等原生表；只会在配置的数据库中创建 `zbxtable_` 前缀表。若确实需要共用 Zabbix 数据库，可显式设置 `ZBXTABLE_DB_NAME=zabbix`，但仍须授予 ZbxTable 账号创建和读写 `zbxtable_*` 表的权限。
+新安装建议创建独立的 `zbxtable_lg` 数据库并使用单独账号。安装脚本不会迁移、删除或修改 Zabbix 的 `hosts`、`items`、`history`、`events` 等原生表；只会在配置的数据库中创建 `zbxtable_` 前缀表。若确实需要共用 Zabbix 数据库，可显式设置 `ZBXTABLE_DB_NAME=zabbix`，但仍须授予 ZbxTable 账号创建和读写 `zbxtable_*` 表的权限。
 
 [![Build and Test](https://github.com/canghai908/zbxtable/actions/workflows/build.yml/badge.svg)](https://github.com/canghai908/zbxtable/actions/workflows/build.yml)
 [![Release](https://github.com/canghai908/zbxtable/actions/workflows/release.yml/badge.svg)](https://github.com/canghai908/zbxtable/actions/workflows/release.yml)
@@ -26,7 +26,7 @@ ZbxTable 可以直接使用 Zabbix 现有的 MySQL/MariaDB 或 PostgreSQL 数据
 通过同一个入口按提示输入数字，可选择 systemd 安装、Docker 安装、更新、修复、卸载或退出；更新和修复都会保留现有配置，安装时选择版本和 Web 端口，卸载时可选择保留或删除配置：
 
 ```bash
-curl -fsSL https://github.com/linguyuebai/zbxtable/releases/download/v3.0.8/install-release.sh | sudo bash
+curl -fsSL https://github.com/linguyuebai/zbxtable/releases/latest/download/install-release.sh | sudo bash
 ```
 
 卸载需要输入 `DELETE` 确认，只会移除 ZbxTable 服务、容器和文件，不会删除 Zabbix 服务或共享数据库。自动化或无交互部署仍可使用下方命令行参数。
@@ -168,7 +168,7 @@ Windows：双击 `scripts\\install.bat` 完成编译和配置，再双击 `scrip
 
 ```bash
 # 交互式安装管理器：按菜单选择 systemd、Docker、更新、修复或卸载
-curl -fsSL https://github.com/linguyuebai/zbxtable/releases/download/v3.0.8/install-release.sh | sudo bash
+curl -fsSL https://github.com/linguyuebai/zbxtable/releases/latest/download/install-release.sh | sudo bash
 ```
 
 **安装脚本功能：**

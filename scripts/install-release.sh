@@ -160,13 +160,13 @@ if [[ "$#" == 0 || "$INTERACTIVE" == 1 ]]; then
     [[ "$CONFIRM_UNINSTALL" == DELETE ]] || { printf '已取消卸载。\n' > /dev/tty; exit 0; }
     ASSUME_YES=1
   elif [[ "$REPAIR" != 1 ]]; then
-    printf '选择版本：\n  1) 最新正式 Release（latest）\n  2) 固定版本 v3.0.8\n  3) 输入其他版本标签\n请选择 [1-3]（默认 1）: ' > /dev/tty
+    printf '选择版本：\n  1) 最新正式 Release（latest）\n  2) 固定版本 v3.0.9\n  3) 输入其他版本标签\n请选择 [1-3]（默认 1）: ' > /dev/tty
     IFS= read -r MENU_VERSION_CHOICE < /dev/tty || fail 'Could not read version selection.'
     case "${MENU_VERSION_CHOICE:-1}" in
       1) VERSION=latest ;;
-      2) VERSION=v3.0.8 ;;
+      2) VERSION=v3.0.9 ;;
       3)
-        printf '请输入版本标签（例如 v3.0.8）: ' > /dev/tty
+        printf '请输入版本标签（例如 v3.0.9）: ' > /dev/tty
         IFS= read -r VERSION < /dev/tty || fail 'Could not read version tag.'
         [[ -n "$VERSION" ]] || fail 'Version tag cannot be empty.'
         ;;

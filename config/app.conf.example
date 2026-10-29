@@ -13,5 +13,5 @@ dbtype=mysql
 dbhost=127.0.0.1
 dbuser=zbxtable
 dbpass=change-me
-dbname=zbxtable
+dbname=zbxtable_lg
 dbport=3306

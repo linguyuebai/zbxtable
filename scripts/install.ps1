@@ -30,7 +30,7 @@ if (-not (Test-Path $ConfigFile) -or $env:ZBXTABLE_FORCE_CONFIG -eq '1') {
   $dbType = if ($env:ZBXTABLE_DB_TYPE) { $env:ZBXTABLE_DB_TYPE } else { Ask 'Database type' 'mysql' }
   $dbHost = if ($env:ZBXTABLE_DB_HOST) { $env:ZBXTABLE_DB_HOST } else { Ask 'Zabbix database host' '127.0.0.1' }
   $dbPort = if ($env:ZBXTABLE_DB_PORT) { $env:ZBXTABLE_DB_PORT } else { Ask 'Database port' '3306' }
-  $dbName = if ($env:ZBXTABLE_DB_NAME) { $env:ZBXTABLE_DB_NAME } else { Ask 'ZbxTable database name' 'zbxtable' }
+  $dbName = if ($env:ZBXTABLE_DB_NAME) { $env:ZBXTABLE_DB_NAME } else { Ask 'ZbxTable database name' 'zbxtable_lg' }
   $dbUser = if ($env:ZBXTABLE_DB_USER) { $env:ZBXTABLE_DB_USER } else { Ask 'Database user' 'zbxtable' }
   $dbPass = if ($env:ZBXTABLE_DB_PASS) { $env:ZBXTABLE_DB_PASS } else { Read-Host 'Database password' }
   $httpPort = if ($env:ZBXTABLE_HTTP_PORT) { $env:ZBXTABLE_HTTP_PORT } else { Ask 'HTTP port' '8089' }
