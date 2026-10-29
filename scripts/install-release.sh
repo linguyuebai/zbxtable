@@ -414,6 +414,9 @@ tar -xzf "$ARCHIVE" -C "$TEMP_DIR"
 SOURCE_DIR="$(find "$TEMP_DIR" -mindepth 1 -maxdepth 1 -type d -name 'zbxtable-*' | head -n 1)"
 [[ -n "$SOURCE_DIR" ]] || { echo 'Archive has no zbxtable source directory.' >&2; exit 1; }
 cp -a "$SOURCE_DIR"/. "$INSTALL_ROOT/"
+# Release archives can be assembled on Windows, where shell scripts may gain
+# CRLF endings. Normalize them before invoking any bundled Bash script.
+find "$INSTALL_ROOT" -type f -name '*.sh' -exec sed -i 's/\r$//' {} +
 for required_file in scripts/install.sh scripts/run.sh scripts/uninstall.sh scripts/install-docker.sh config/app.conf.example; do
   [[ -f "$INSTALL_ROOT/$required_file" ]] || fail "Release is missing required file: $required_file"
 done

@@ -33,6 +33,10 @@ if [[ -f "$ROOT_DIR/api/v1/web/web/index.html" ]]; then
   cp -R "$ROOT_DIR/api/v1/web/web/." "$PACKAGE_DIR/api/v1/web/web/"
 fi
 
+# Source files copied from a Windows checkout may have CRLF endings. Keep
+# bundled shell scripts executable by Bash on Linux regardless of packager OS.
+find "$PACKAGE_DIR" -type f -name '*.sh' -exec sed -i 's/\r$//' {} +
+
 cat > "$PACKAGE_DIR/RELEASE-MANIFEST.txt" <<EOF
 ZbxTable release: $VERSION
 Created: $(date -u '+%Y-%m-%dT%H:%M:%SZ')
