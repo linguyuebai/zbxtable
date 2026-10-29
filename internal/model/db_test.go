@@ -31,6 +31,9 @@ func TestMySQLConfigDSNPreservesCredentialsAndIPv6(t *testing.T) {
 	if config.DBName != "zabbix" {
 		t.Fatalf("parsed database = %q, want zabbix", config.DBName)
 	}
+	if !config.AllowNativePasswords {
+		t.Fatal("generated MySQL DSN disables native-password authentication")
+	}
 }
 
 func TestPostgresConfigDSNEncodesCredentialsAndIPv6(t *testing.T) {

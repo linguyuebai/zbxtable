@@ -90,7 +90,12 @@ func mysqlConfigDSN(user, password, host, port, database string) string {
 		Addr: net.JoinHostPort(host, port), DBName: database,
 		ParseTime: true, Loc: time.Local, Timeout: 5 * time.Second,
 		Collation: "utf8_general_ci",
-		Params:    map[string]string{"charset": "utf8"},
+		// Config is built directly instead of parsed from a DSN, so preserve
+		// the driver's default. Otherwise FormatDSN writes
+		// allowNativePasswords=false and MariaDB/MySQL native-password users
+		// cannot connect.
+		AllowNativePasswords: true,
+		Params:               map[string]string{"charset": "utf8"},
 	}
 	return config.FormatDSN()
 }

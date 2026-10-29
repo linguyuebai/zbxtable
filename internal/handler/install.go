@@ -87,7 +87,8 @@ func checkDatabaseConnection(dbdriver, dbhost, dbuser, dbpass, dbname, dbport st
 			User: dbuser, Passwd: dbpass, Net: "tcp",
 			Addr: net.JoinHostPort(dbhost, dbport), DBName: dbname,
 			ParseTime: true, Loc: time.FixedZone("CST", 8*60*60), Timeout: 5 * time.Second,
-			Collation: "utf8_general_ci", Params: map[string]string{"charset": "utf8"},
+			Collation: "utf8_general_ci", AllowNativePasswords: true,
+			Params: map[string]string{"charset": "utf8"},
 		}
 		db, err := sql.Open("mysql", config.FormatDSN())
 		if err != nil {

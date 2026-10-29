@@ -34,7 +34,9 @@ jobs:
         run: |
           test -s api/v1/web/web/index.html
           test -n "$(find api/v1/web/web/js -type f -name '*.js' -size +0c -print -quit)"
-          echo 'Embedded frontend assets are present and will be included in the source archive.'\n\n      - name: Resolve version
+          echo 'Embedded frontend assets are present and will be included in the source archive.'
+
+      - name: Resolve version
         id: version
         run: |
           version="${GITHUB_REF#refs/tags/}"
@@ -49,7 +51,7 @@ jobs:
 
       - name: Build release packages
         run: |
-          echo "📦 Building release archives..."
+          echo "Building release archives..."
           make package
           ZBXTABLE_VERSION="${GITHUB_REF_NAME}" ./scripts/package-release.sh
           ls -lh dist/releases
