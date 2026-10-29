@@ -77,7 +77,19 @@ jobs:
       - name: Build release packages
         run: |
           echo "Building release archives..."
-          ZBXTABLE_VERSION="${GITHUB_REF_NAME}" ./scripts/package-release.sh
+          safe_version="${GITHUB_REF_NAME//\//-}"
+          stage="$RUNNER_TEMP/zbxtable-release"
+          rm -rf "$stage" dist
+          mkdir -p "$stage/zbxtable-$safe_version" dist
+          tar -cf - \
+            --exclude='./.git' \
+            --exclude='./dist' \
+            --exclude='./build' \
+            --exclude='./config/app.conf' \
+            --exclude='./zbxtable-web' \
+            . | tar -xf - -C "$stage/zbxtable-$safe_version"
+          tar -C "$stage" -czf "dist/zbxtable-$safe_version-source.tar.gz" "zbxtable-$safe_version"
+          sha256sum "dist/zbxtable-$safe_version-source.tar.gz" > "dist/zbxtable-$safe_version-source.tar.gz.sha256"
           ls -lh dist/zbxtable-*-source.tar.gz*
 
       - name: Generate checksums
