@@ -150,6 +150,12 @@ func InitRouter() *gin.Engine {
 		v1.POST("/receive", handler.ReceiveGin)
 		v1.POST("/webhook", handler.WebhookGin)
 		v1.GET("/info", handler.GetPublicSystemInfo)
+		// Keep the legacy root API aliases used by older official frontend
+		// bundles.  Some browsers keep an old JavaScript chunk in their service
+		// worker cache and submit /login instead of /v1/login; returning the same
+		// JSON handler prevents the SPA HTML document from being parsed as JSON.
+		apiGroup.POST("/login", handler.LoginGin)
+		apiGroup.POST("/logout", handler.LogoutGin)
 
 		// 需要认证的路由
 		api := v1.Group("")

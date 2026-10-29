@@ -148,6 +148,50 @@ func TestLoginEndpointIsRegistered(t *testing.T) {
 	}
 }
 
+func TestLegacyRootLoginAliasReturnsJSON(t *testing.T) {
+	router := InitRouter()
+	response := httptest.NewRecorder()
+	request := httptest.NewRequest("POST", "/login", strings.NewReader(`{invalid-json`))
+	request.Header.Set("Accept", "application/json")
+	router.ServeHTTP(response, request)
+	if response.Code != 503 {
+		t.Fatalf("POST /login before installation returned HTTP %d, want 503: %s", response.Code, response.Body.String())
+	}
+	if got := response.Header().Get("Content-Type"); !strings.Contains(got, "application/json") {
+		t.Fatalf("POST /login Content-Type = %q, want application/json", got)
+	}
+	if !strings.Contains(response.Body.String(), `"redirect":"/install"`) {
+		t.Fatalf("POST /login response = %s, want install redirect", response.Body.String())
+	}
+}
+
+func TestUnknownV1APIPathNeverFallsBackToHTML(t *testing.T) {
+	router := InitRouter()
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, httptest.NewRequest("GET", "/v1/unknown", nil))
+	if response.Code != 404 {
+		t.Fatalf("GET /v1/unknown status = %d, want 404", response.Code)
+	}
+	if got := response.Header().Get("Content-Type"); !strings.Contains(got, "application/json") {
+		t.Fatalf("GET /v1/unknown Content-Type = %q, want application/json", got)
+	}
+	if strings.Contains(strings.ToLower(response.Body.String()), "<!doctype") {
+		t.Fatalf("GET /v1/unknown returned the SPA document: %s", response.Body.String())
+	}
+}
+
+func TestLoginBrowserRouteServesEmbeddedSPA(t *testing.T) {
+	router := InitRouter()
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, httptest.NewRequest("GET", "/user/login", nil))
+	if response.Code != 200 || !strings.Contains(strings.ToLower(response.Body.String()), "<!doctype") {
+		t.Fatalf("GET /user/login returned HTTP %d, expected the embedded SPA document", response.Code)
+	}
+	if response.Header().Get("Cache-Control") == "" || !strings.Contains(response.Header().Get("Cache-Control"), "no-store") {
+		t.Fatalf("GET /user/login Cache-Control = %q, want no-store", response.Header().Get("Cache-Control"))
+	}
+}
+
 func TestOfficialAndExtensionRoutesRemainRegistered(t *testing.T) {
 	router := InitRouter()
 	routes := make(map[string]bool)
