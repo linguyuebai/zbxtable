@@ -6,6 +6,27 @@ GO_DOWNLOAD_BASE="${ZBXTABLE_GO_DOWNLOAD_BASE:-https://go.dev/dl}"
 log() { printf '[zbxtable-env] %s\n' "$*"; }
 fail() { printf '[zbxtable-env] ERROR: %s\n' "$*" >&2; exit 1; }
 
+repair_docker_apt_mirrors() {
+  local source_file
+  while IFS= read -r -d '' source_file; do
+    if grep -qE 'https?://mirrors\.aliyun\.com/docker-ce/linux/' "$source_file"; then
+      sed -i.bak -E 's#https?://mirrors\.aliyun\.com/docker-ce/linux/#https://download.docker.com/linux/#g' "$source_file"
+      log "Replaced the out-of-sync Aliyun Docker CE mirror in $source_file with the official Docker repository."
+    fi
+  done < <(find /etc/apt -type f \( -name '*.list' -o -name '*.sources' \) -print0 2>/dev/null)
+  rm -f /var/lib/apt/lists/*mirrors.aliyun.com_docker-ce* /var/lib/apt/lists/*download.docker.com*
+  rm -f /var/lib/apt/lists/partial/*mirrors.aliyun.com_docker-ce* /var/lib/apt/lists/partial/*download.docker.com*
+}
+
+apt_update_with_docker_mirror_fallback() {
+  if apt-get update; then return 0; fi
+  log 'APT index update failed; refreshing Docker CE repository metadata and retrying.'
+  repair_docker_apt_mirrors
+  apt-get clean
+  rm -f /var/lib/apt/lists/partial/*
+  apt-get update || fail 'APT update still fails after refreshing Docker CE mirror metadata. Check other configured repositories and retry.'
+}
+
 if [[ "$(id -u)" -ne 0 ]]; then
   exec sudo -E bash "$0" "$@"
 fi
@@ -15,7 +36,7 @@ install_packages() {
   case "$manager" in
     apt-get)
       export DEBIAN_FRONTEND=noninteractive
-      apt-get update
+      apt_update_with_docker_mirror_fallback
       apt-get install -y ca-certificates curl tar gzip coreutils python3
       ;;
     dnf) dnf install -y ca-certificates curl tar gzip coreutils python3 ;;

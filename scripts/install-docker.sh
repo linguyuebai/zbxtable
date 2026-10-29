@@ -12,6 +12,25 @@ CONFIG_DIR="${ZBXTABLE_DOCKER_CONFIG:-$ROOT_DIR/config}"
 INSTALL_DOCKER=0
 log() { printf '[zbxtable-docker] %s\n' "$*"; }
 fail() { printf '[zbxtable-docker] ERROR: %s\n' "$*" >&2; exit 1; }
+repair_docker_apt_mirrors() {
+  local source_file
+  while IFS= read -r -d '' source_file; do
+    if grep -qE 'https?://mirrors\.aliyun\.com/docker-ce/linux/' "$source_file"; then
+      sed -i.bak -E 's#https?://mirrors\.aliyun\.com/docker-ce/linux/#https://download.docker.com/linux/#g' "$source_file"
+      log "Replaced the out-of-sync Aliyun Docker CE mirror in $source_file with the official Docker repository."
+    fi
+  done < <(find /etc/apt -type f \( -name '*.list' -o -name '*.sources' \) -print0 2>/dev/null)
+  rm -f /var/lib/apt/lists/*mirrors.aliyun.com_docker-ce* /var/lib/apt/lists/*download.docker.com*
+  rm -f /var/lib/apt/lists/partial/*mirrors.aliyun.com_docker-ce* /var/lib/apt/lists/partial/*download.docker.com*
+}
+apt_update_with_docker_mirror_fallback() {
+  if apt-get update; then return 0; fi
+  log 'APT index update failed; refreshing Docker CE repository metadata and retrying.'
+  repair_docker_apt_mirrors
+  apt-get clean
+  rm -f /var/lib/apt/lists/partial/*
+  apt-get update || fail 'APT update still fails after refreshing Docker CE mirror metadata. Check other configured repositories and retry.'
+}
 check_frontend_assets() {
   local base_url="http://127.0.0.1:$PORT" index_file asset_path asset_file
   index_file="$(mktemp)"
@@ -69,14 +88,17 @@ if ! command -v docker >/dev/null 2>&1; then
     ubuntu|debian) ;;
     *) fail "Automatic Docker installation supports Ubuntu/Debian; detected: ${distro:-unknown}" ;;
   esac
-  apt-get update
+  # An existing Docker CE source may point to a mirror that is mid-sync and
+  # causes APT size/hash errors. Normalize that vendor source before updating.
+  repair_docker_apt_mirrors
+  apt_update_with_docker_mirror_fallback
   apt-get install -y ca-certificates curl gnupg
   install -m 0755 -d /etc/apt/keyrings
   curl -fsSL "https://download.docker.com/linux/$distro/gpg" | gpg --dearmor --yes -o /etc/apt/keyrings/docker.gpg
   chmod a+r /etc/apt/keyrings/docker.gpg
   codename="${VERSION_CODENAME:-$(lsb_release -cs 2>/dev/null || echo noble)}"
   printf 'deb [arch=%s signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/%s %s stable\n' "$(dpkg --print-architecture)" "$distro" "$codename" > /etc/apt/sources.list.d/docker.list
-  apt-get update
+  apt_update_with_docker_mirror_fallback
   apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
   systemctl enable --now docker 2>/dev/null || true
 fi

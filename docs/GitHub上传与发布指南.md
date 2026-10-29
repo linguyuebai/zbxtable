@@ -2,6 +2,8 @@
 
 本文说明如何检查本地改动、上传 `3.0` 分支，以及发布包含最新安装脚本的 Release。命令默认在仓库根目录运行。
 
+Ubuntu/Debian 自动安装 Docker 时，如果现有 APT 源配置为正在同步的阿里云 Docker CE 镜像，安装脚本会将该 Docker CE 源切换到官方 `download.docker.com` 地址、清理对应缓存索引并重试更新。其他 APT 源仍报错时，脚本会停止并保留错误，需先修复系统中对应的软件源。
+
 ## 上传前检查
 
 ```powershell
