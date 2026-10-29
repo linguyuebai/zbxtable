@@ -70,9 +70,8 @@ jobs:
 
       - name: Run release validation
         run: |
-          make install
-          make vet
-          make test
+          go vet ./...
+          go test ./...
 
       - name: Build release packages
         run: |
