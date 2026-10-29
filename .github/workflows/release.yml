@@ -58,7 +58,8 @@ jobs:
       - name: Verify embedded frontend assets
         run: |
           test -s api/v1/web/web/index.html
-          test -n "$(find api/v1/web/web/js -type f -name '*.js' -size +0c -print -quit)"
+          test -d api/v1/web/web/js
+          test -n "$(find api/v1/web/web/js -type f -name '*.js' -print -quit)"
           echo 'Embedded frontend assets are present and will be included in the source archive.'
 
       - name: Resolve version
