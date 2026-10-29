@@ -77,15 +77,13 @@ jobs:
       - name: Build release packages
         run: |
           echo "Building release archives..."
-          make package
           ZBXTABLE_VERSION="${GITHUB_REF_NAME}" ./scripts/package-release.sh
-          ls -lh dist/releases
           ls -lh dist/zbxtable-*-source.tar.gz*
 
       - name: Generate checksums
         run: |
-          cd dist/releases
-          sha256sum *.tar.gz > SHA256SUMS
+          cd dist
+          sha256sum *-source.tar.gz > SHA256SUMS
           cat SHA256SUMS
 
       - name: Generate changelog
@@ -120,8 +118,7 @@ jobs:
           draft: false
           prerelease: false
           files: |
-            dist/releases/*.tar.gz
-            dist/releases/SHA256SUMS
+            dist/SHA256SUMS
             dist/zbxtable-*-source.tar.gz
             dist/zbxtable-*-source.tar.gz.sha256
             scripts/install-release.sh
