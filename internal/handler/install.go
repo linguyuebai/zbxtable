@@ -432,9 +432,18 @@ func CheckDatabase(c *gin.Context) {
 		response.InternalError(c, "数据库连接失败: "+err.Error())
 		return
 	}
+	databases, _ := listDatabases(req.DBType, req.DBHost, req.DBUser, req.DBPass, req.DBPort)
+	zabbixDatabases := make([]string, 0)
+	for _, name := range databases {
+		lower := strings.ToLower(name)
+		if lower == "zabbix" || strings.Contains(lower, "zabbix") {
+			zabbixDatabases = append(zabbixDatabases, name)
+		}
+	}
 
 	response.SuccessWithMessage(c, "数据库连接成功", gin.H{
 		"success": true, "database": req.DBName, "created": created, "isolated_from_zabbix": strings.ToLower(req.DBName) != "zabbix",
+		"os": runtime.GOOS, "arch": runtime.GOARCH, "zabbix_databases": zabbixDatabases,
 	})
 }
 
