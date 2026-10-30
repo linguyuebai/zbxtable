@@ -84,7 +84,7 @@ else
   printf 'httpport=%s\nrunmode=%s\ntimeout=12\nlog_level=3\nlog_path=log\nmaxlines=1000\nmaxsize=0\nmaxdays=10\ndaily=true\ndbtype=%s\ndbhost=%s\ndbuser=%s\ndbpass=%s\ndbname=%s\ndbport=%s\n' \
     "$HTTP_PORT" "$RUN_MODE" "$DB_TYPE" "$DB_HOST" "$DB_USER" "$DB_PASS" "$DB_NAME" "$DB_PORT" > "$CONFIG_FILE"
   chmod 600 "$CONFIG_FILE"
-  log "Wrote shared-database configuration: $DB_TYPE $DB_HOST:$DB_PORT/$DB_NAME"
+  log "Wrote ZbxTable database configuration: $DB_TYPE $DB_HOST:$DB_PORT/$DB_NAME"
 fi
 
 [[ "$HTTP_PORT" =~ ^[0-9]+$ ]] && (( HTTP_PORT >= 1 && HTTP_PORT <= 65535 )) || fail "Invalid HTTP port in configuration: $HTTP_PORT"
