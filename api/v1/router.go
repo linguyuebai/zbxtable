@@ -100,8 +100,10 @@ func InitRouter() *gin.Engine {
 	r.GET("/service-worker.js", func(c *gin.Context) {
 		data, err := fs.ReadFile(subFS, "service-worker.js")
 		if err != nil {
-			c.Status(http.StatusNotFound)
-			return
+			// The current official Vue build does not emit a service worker,
+			// while older bundles do. Serve a tiny no-cache worker in that
+			// case so browser upgrades can still clear stale release assets.
+			data = []byte("self.addEventListener('install',function(e){self.skipWaiting();});self.addEventListener('activate',function(e){e.waitUntil(self.clients.claim());});")
 		}
 		c.Header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
 		c.Header("Pragma", "no-cache")
