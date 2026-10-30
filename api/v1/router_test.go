@@ -234,6 +234,9 @@ func TestOfficialAndExtensionRoutesRemainRegistered(t *testing.T) {
 			t.Errorf("required official or extension route %q is not registered", key)
 		}
 	}
+	if !routes["POST /install/database-info"] {
+		t.Error("database discovery route is not registered")
+	}
 }
 
 func TestAllOfficialV306RoutesRemainRegistered(t *testing.T) {

@@ -133,6 +133,7 @@ func InitRouter() *gin.Engine {
 	installGroup := r.Group("/install")
 	{
 		installGroup.GET("/status", handler.GetInstallStatus)
+		installGroup.POST("/database-info", handler.GetDatabaseInfo)
 		installGroup.POST("/check-db", handler.CheckDatabase)
 		installGroup.POST("/install", handler.DoInstall)
 	}

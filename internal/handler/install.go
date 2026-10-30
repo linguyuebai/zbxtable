@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -124,6 +126,84 @@ func checkDatabaseConnection(dbdriver, dbhost, dbuser, dbpass, dbname, dbport st
 	return nil
 }
 
+const defaultInstallDatabase = "zbxtable_lg"
+
+// databaseExists checks the server without selecting a database. This lets
+// the first-run wizard create a dedicated ZbxTable database while leaving the
+// existing Zabbix database untouched.
+func databaseExists(dbdriver, dbhost, dbuser, dbpass, dbname, dbport string) (bool, error) {
+	if dbname == "" {
+		return false, nil
+	}
+	switch dbdriver {
+	case "mysql":
+		config := mysqlDriver.Config{User: dbuser, Passwd: dbpass, Net: "tcp", Addr: net.JoinHostPort(dbhost, dbport), ParseTime: true, Loc: time.Local, Timeout: 5 * time.Second, AllowNativePasswords: true}
+		db, err := sql.Open("mysql", config.FormatDSN())
+		if err != nil {
+			return false, err
+		}
+		defer db.Close()
+		var found string
+		err = db.QueryRow("SELECT SCHEMA_NAME FROM INFORMATION_SCHEMA.SCHEMATA WHERE SCHEMA_NAME = ?", dbname).Scan(&found)
+		if err == sql.ErrNoRows {
+			return false, nil
+		}
+		return err == nil, err
+	case "postgresql":
+		u := url.URL{Scheme: "postgres", User: url.UserPassword(dbuser, dbpass), Host: net.JoinHostPort(dbhost, dbport), Path: "/postgres"}
+		q := u.Query()
+		q.Set("sslmode", "disable")
+		u.RawQuery = q.Encode()
+		db, err := sql.Open("postgres", u.String())
+		if err != nil {
+			return false, err
+		}
+		defer db.Close()
+		var found string
+		err = db.QueryRow("SELECT datname FROM pg_database WHERE datname = $1", dbname).Scan(&found)
+		if err == sql.ErrNoRows {
+			return false, nil
+		}
+		return err == nil, err
+	default:
+		return false, fmt.Errorf("unsupported database type %q", dbdriver)
+	}
+}
+
+func createDatabase(dbdriver, dbhost, dbuser, dbpass, dbname, dbport string) error {
+	if !regexp.MustCompile(`^[A-Za-z0-9_]+$`).MatchString(dbname) {
+		return fmt.Errorf("database name must contain only letters, numbers and underscores")
+	}
+	switch dbdriver {
+	case "mysql":
+		config := mysqlDriver.Config{User: dbuser, Passwd: dbpass, Net: "tcp", Addr: net.JoinHostPort(dbhost, dbport), ParseTime: true, Loc: time.Local, Timeout: 5 * time.Second, AllowNativePasswords: true}
+		db, err := sql.Open("mysql", config.FormatDSN())
+		if err != nil {
+			return err
+		}
+		defer db.Close()
+		_, err = db.Exec("CREATE DATABASE IF NOT EXISTS `" + dbname + "` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci")
+		return err
+	case "postgresql":
+		u := url.URL{Scheme: "postgres", User: url.UserPassword(dbuser, dbpass), Host: net.JoinHostPort(dbhost, dbport), Path: "/postgres"}
+		q := u.Query()
+		q.Set("sslmode", "disable")
+		u.RawQuery = q.Encode()
+		db, err := sql.Open("postgres", u.String())
+		if err != nil {
+			return err
+		}
+		defer db.Close()
+		_, err = db.Exec(`CREATE DATABASE "` + dbname + `"`)
+		if strings.Contains(strings.ToLower(fmt.Sprint(err)), "already exists") {
+			return nil
+		}
+		return err
+	default:
+		return fmt.Errorf("unsupported database type %q", dbdriver)
+	}
+}
+
 // writeConfigFile 写入配置文件
 func writeConfigFile(
 	dbtype, dbhost, dbuser, dbpass, dbname, dbport,
@@ -232,12 +312,89 @@ func GetInstallStatus(c *gin.Context) {
 
 // CheckDatabaseRequest 数据库检查请求
 type CheckDatabaseRequest struct {
+	DBType         string `json:"dbtype" binding:"required"`
+	DBHost         string `json:"dbhost"`
+	DBUser         string `json:"dbuser"`
+	DBPass         string `json:"dbpass"`
+	DBName         string `json:"dbname"`
+	DBPort         string `json:"dbport"`
+	CreateDatabase bool   `json:"create_database"`
+}
+
+type DatabaseInfoRequest struct {
 	DBType string `json:"dbtype" binding:"required"`
 	DBHost string `json:"dbhost"`
 	DBUser string `json:"dbuser"`
 	DBPass string `json:"dbpass"`
-	DBName string `json:"dbname" binding:"required"`
 	DBPort string `json:"dbport"`
+}
+
+// GetDatabaseInfo reports the host OS, reachable database server and likely
+// Zabbix database. It never returns passwords and never changes data.
+func GetDatabaseInfo(c *gin.Context) {
+	var req DatabaseInfoRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "参数错误: "+err.Error())
+		return
+	}
+	if req.DBHost == "" || req.DBUser == "" || req.DBPort == "" {
+		response.BadRequest(c, "数据库地址、端口和用户不能为空")
+		return
+	}
+	if req.DBType != "mysql" && req.DBType != "postgresql" {
+		response.BadRequest(c, "仅支持 MySQL/MariaDB 或 PostgreSQL")
+		return
+	}
+	dbs, err := listDatabases(req.DBType, req.DBHost, req.DBUser, req.DBPass, req.DBPort)
+	if err != nil {
+		response.InternalError(c, "读取数据库列表失败: "+err.Error())
+		return
+	}
+	zabbix := make([]string, 0)
+	for _, name := range dbs {
+		lower := strings.ToLower(name)
+		if lower == "zabbix" || strings.Contains(lower, "zabbix") {
+			zabbix = append(zabbix, name)
+		}
+	}
+	response.Success(c, gin.H{"os": runtime.GOOS, "arch": runtime.GOARCH, "database_type": req.DBType, "databases": dbs, "zabbix_databases": zabbix, "recommended_database": defaultInstallDatabase})
+}
+
+func listDatabases(dbdriver, dbhost, dbuser, dbpass, dbport string) ([]string, error) {
+	var db *sql.DB
+	var err error
+	if dbdriver == "mysql" {
+		config := mysqlDriver.Config{User: dbuser, Passwd: dbpass, Net: "tcp", Addr: net.JoinHostPort(dbhost, dbport), ParseTime: true, Loc: time.Local, Timeout: 5 * time.Second, AllowNativePasswords: true}
+		db, err = sql.Open("mysql", config.FormatDSN())
+	} else {
+		u := url.URL{Scheme: "postgres", User: url.UserPassword(dbuser, dbpass), Host: net.JoinHostPort(dbhost, dbport), Path: "/postgres"}
+		q := u.Query()
+		q.Set("sslmode", "disable")
+		u.RawQuery = q.Encode()
+		db, err = sql.Open("postgres", u.String())
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+	query := "SELECT SCHEMA_NAME FROM INFORMATION_SCHEMA.SCHEMATA"
+	if dbdriver == "postgresql" {
+		query = "SELECT datname FROM pg_database WHERE datistemplate = false"
+	}
+	rows, err := db.Query(query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return nil, err
+		}
+		out = append(out, name)
+	}
+	return out, rows.Err()
 }
 
 // CheckDatabase 检查数据库连接
@@ -254,6 +411,22 @@ func CheckDatabase(c *gin.Context) {
 		return
 	}
 
+	if req.DBName == "" {
+		req.DBName = defaultInstallDatabase
+	}
+	created := false
+	exists, existsErr := databaseExists(req.DBType, req.DBHost, req.DBUser, req.DBPass, req.DBName, req.DBPort)
+	if existsErr != nil {
+		response.InternalError(c, "数据库检查失败: "+existsErr.Error())
+		return
+	}
+	if !exists && req.CreateDatabase {
+		if err := createDatabase(req.DBType, req.DBHost, req.DBUser, req.DBPass, req.DBName, req.DBPort); err != nil {
+			response.InternalError(c, "创建 ZbxTable 数据库失败: "+err.Error())
+			return
+		}
+		created = true
+	}
 	err := checkDatabaseConnection(req.DBType, req.DBHost, req.DBUser, req.DBPass, req.DBName, req.DBPort)
 	if err != nil {
 		response.InternalError(c, "数据库连接失败: "+err.Error())
@@ -261,7 +434,7 @@ func CheckDatabase(c *gin.Context) {
 	}
 
 	response.SuccessWithMessage(c, "数据库连接成功", gin.H{
-		"success": true,
+		"success": true, "database": req.DBName, "created": created, "isolated_from_zabbix": strings.ToLower(req.DBName) != "zabbix",
 	})
 }
 
@@ -314,6 +487,9 @@ func DoInstall(c *gin.Context) {
 		response.BadRequest(c, "参数错误：数据库需要 dbhost、dbuser、dbport；dbpass 可以为空")
 		return
 	}
+	if req.DBName == "" {
+		req.DBName = defaultInstallDatabase
+	}
 
 	// 检查是否已安装
 	confPath := "./config/app.conf"
@@ -330,6 +506,20 @@ func DoInstall(c *gin.Context) {
 		}
 	}
 
+	// Create the dedicated database automatically when it does not exist. If
+	// the operator intentionally selected the existing Zabbix database, leave
+	// it untouched and only create the zbxtable_* tables inside it.
+	exists, existsErr := databaseExists(req.DBType, req.DBHost, req.DBUser, req.DBPass, req.DBName, req.DBPort)
+	if existsErr != nil {
+		response.InternalError(c, "数据库检查失败: "+existsErr.Error())
+		return
+	}
+	if !exists {
+		if err = createDatabase(req.DBType, req.DBHost, req.DBUser, req.DBPass, req.DBName, req.DBPort); err != nil {
+			response.InternalError(c, "创建 ZbxTable 数据库失败，请确认数据库账号具有 CREATE DATABASE 权限: "+err.Error())
+			return
+		}
+	}
 	// 再次验证数据库连接
 	err = checkDatabaseConnection(req.DBType, req.DBHost, req.DBUser, req.DBPass, req.DBName, req.DBPort)
 	if err != nil {
@@ -382,10 +572,13 @@ func DoInstall(c *gin.Context) {
 	portChanged := req.HTTPPort != "" && req.HTTPPort != currentPort
 
 	response.SuccessWithMessage(c, "安装成功！请手动重启程序以加载配置", gin.H{
-		"success":      true,
-		"need_restart": true,
-		"port_changed": portChanged,
-		"old_port":     currentPort,
-		"new_port":     req.HTTPPort,
+		"success":                   true,
+		"need_restart":              true,
+		"port_changed":              portChanged,
+		"old_port":                  currentPort,
+		"new_port":                  req.HTTPPort,
+		"database":                  req.DBName,
+		"database_created":          !exists,
+		"zabbix_database_unchanged": true,
 	})
 }

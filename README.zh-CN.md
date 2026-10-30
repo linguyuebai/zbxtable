@@ -15,10 +15,13 @@
 
 ZbxTable 是一个使用 Go 语言开发的 Zabbix 智能运维平台，提供强大的监控数据展示、告警管理和 AI 智能分析功能。
 
-## 与 Zabbix 共用数据库
+## 数据库检测、创建与隔离
 
-ZbxTable 可以直接使用 Zabbix 现有的 MySQL/MariaDB 或 PostgreSQL 数据库，不需要新建数据库。安装时将 `dbname` 填写为 Zabbix 数据库名，并使用具备建表和读写权限的账号即可。ZbxTable 自有表统一使用 `zbxtable_` 前缀，例如 `zbxtable_inspection_policy` 和 `zbxtable_inspection_result`，不会修改 Zabbix 的 `hosts`、`items`、`history` 等原生表；巡检指标通过已配置的 Zabbix API 读取。
+ZbxTable 默认使用独立数据库 `zbxtable_lg`，安装向导会检测当前 Linux/Windows 平台、数据库类型、已有数据库以及可能的 Zabbix 数据库；目标库不存在时会自动创建。ZbxTable 只创建 `zbxtable_` 前缀表，不会修改或删除 Zabbix 的 `hosts`、`items`、`history`、`events` 等原生表。安装完成后，再在页面“系统设置 → Zabbix 实例”中通过 Zabbix API 对接 Zabbix。
 
+如确需共用 Zabbix 数据库，可在安装向导中明确填写 `zabbix`，但必须确保账号只有必要的建表和读写权限。生产环境推荐使用 `zbxtable_lg` 独立库。
+
+安装向导提供 `POST /install/database-info` 只读检测接口、`POST /install/check-db` 连接/创建测试接口和 `POST /install/install` 自动创建目标库并初始化表接口。详细说明见 [安装向导：数据库检测与创建](./docs/安装向导-数据库检测与创建.md)。
 ## 一键安装和运行
 
 安装前可只读检查系统版本、CPU 架构、常用依赖、磁盘空间、端口、systemd/Docker 状态和 GitHub 连通性：
