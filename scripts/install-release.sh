@@ -391,7 +391,14 @@ curl --connect-timeout 15 --max-time 600 --retry 3 --retry-all-errors --retry-de
 if [[ "$SKIP_CHECKSUM" != 1 ]]; then
   HASH_URL="${BASE_URL}.sha256"
   curl --connect-timeout 15 --max-time 90 --retry 3 --retry-all-errors --retry-delay 2 -fsSL "$HASH_URL" -o "$ARCHIVE.sha256" || { echo 'Release checksum is missing; refusing an unverified installation.' >&2; exit 1; }
-  (cd "$TEMP_DIR" && sha256sum -c "$(basename "$ARCHIVE.sha256")")
+  # Release checksum files may contain either the archive basename or a
+  # workspace-relative path (older releases used dist/<archive>).  Validate
+  # the downloaded file explicitly so the path in the checksum cannot depend
+  # on the installer's current working directory.
+  expected_hash="$(awk 'NF {print $1; exit}' "$ARCHIVE.sha256")"
+  actual_hash="$(sha256sum "$ARCHIVE" | awk '{print $1}')"
+  [[ "$expected_hash" =~ ^[0-9a-fA-F]{64}$ ]] || fail 'Release checksum has an invalid SHA256 value.'
+  [[ "$expected_hash" == "$actual_hash" ]] || fail "SHA256 mismatch: expected $expected_hash, got $actual_hash"
   log 'SHA256 verification passed.'
 else
   log 'WARNING: SHA256 verification skipped.'

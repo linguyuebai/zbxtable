@@ -89,7 +89,7 @@ jobs:
             --exclude='./zbxtable-web' \
             . | tar -xf - -C "$stage/zbxtable-$safe_version"
           tar -C "$stage" -czf "dist/zbxtable-$safe_version-source.tar.gz" "zbxtable-$safe_version"
-          sha256sum "dist/zbxtable-$safe_version-source.tar.gz" > "dist/zbxtable-$safe_version-source.tar.gz.sha256"
+          (cd dist && sha256sum "zbxtable-$safe_version-source.tar.gz") > "dist/zbxtable-$safe_version-source.tar.gz.sha256"
           ls -lh dist/zbxtable-*-source.tar.gz*
 
       - name: Generate checksums
