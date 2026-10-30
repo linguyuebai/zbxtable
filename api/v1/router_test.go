@@ -36,19 +36,25 @@ func TestEmbeddedFrontendJavaScriptIsServed(t *testing.T) {
 			t.Fatalf("index.html does not contain a %s", check.name)
 		}
 		for _, match := range matches {
+			assetPath := match[1]
+			if !strings.HasPrefix(assetPath, "/") {
+				// Vue CLI emits relative static/js paths while the older
+				// embedded bundle emits /js paths. Both are valid browser URLs.
+				assetPath = "/" + assetPath
+			}
 			asset := httptest.NewRecorder()
-			router.ServeHTTP(asset, httptest.NewRequest("GET", match[1], nil))
+			router.ServeHTTP(asset, httptest.NewRequest("GET", assetPath, nil))
 			if asset.Code != 200 {
-				t.Errorf("GET %s status = %d, want 200", match[1], asset.Code)
+				t.Errorf("GET %s status = %d, want 200", assetPath, asset.Code)
 				continue
 			}
 			body, err := io.ReadAll(asset.Body)
 			if err != nil {
-				t.Errorf("read frontend asset %s: %v", match[1], err)
+				t.Errorf("read frontend asset %s: %v", assetPath, err)
 				continue
 			}
 			if len(body) == 0 || strings.Contains(strings.ToLower(string(body)), "<html") {
-				t.Errorf("frontend asset %s returned empty content or HTML fallback", match[1])
+				t.Errorf("frontend asset %s returned empty content or HTML fallback", assetPath)
 			}
 		}
 	}
@@ -63,10 +69,14 @@ func TestEmbeddedFrontendJavaScriptIsServed(t *testing.T) {
 	}
 	precachePattern := regexp.MustCompile(`url:\s*["']([^"']+)["']`)
 	for _, match := range precachePattern.FindAllStringSubmatch(serviceWorker.Body.String(), -1) {
+		assetPath := match[1]
+		if !strings.HasPrefix(assetPath, "/") {
+			assetPath = "/" + assetPath
+		}
 		asset := httptest.NewRecorder()
-		router.ServeHTTP(asset, httptest.NewRequest("GET", match[1], nil))
+		router.ServeHTTP(asset, httptest.NewRequest("GET", assetPath, nil))
 		if asset.Code != 200 {
-			t.Errorf("service worker precache asset %s returned %d", match[1], asset.Code)
+			t.Errorf("service worker precache asset %s returned %d", assetPath, asset.Code)
 		}
 	}
 
