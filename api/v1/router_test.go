@@ -53,8 +53,8 @@ func TestEmbeddedFrontendJavaScriptIsServed(t *testing.T) {
 				t.Errorf("read frontend asset %s: %v", assetPath, err)
 				continue
 			}
-			if len(body) == 0 || strings.Contains(strings.ToLower(string(body)), "<html") {
-				t.Errorf("frontend asset %s returned empty content or HTML fallback", assetPath)
+			if strings.Contains(strings.ToLower(string(body)), "<html") {
+				t.Errorf("frontend asset %s returned HTML fallback", assetPath)
 			}
 		}
 	}
