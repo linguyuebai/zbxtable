@@ -39,6 +39,43 @@ check_port() {
   fi
 }
 
+ensure_database() {
+  local db_type="$1" host="$2" port="$3" user="$4" pass="$5" name="$6"
+  [[ "$name" =~ ^[A-Za-z0-9_]+$ ]] || fail "Invalid database name: $name"
+  case "$db_type" in
+    mysql|mariadb)
+      command -v mysql >/dev/null 2>&1 || fail 'mysql client is required to create/check the ZbxTable database. Install mysql-client or create the database manually.'
+      local mysql_args=(--protocol=tcp -h "$host" -P "$port" -u "$user" --batch --skip-column-names)
+      if ! MYSQL_PWD="$pass" mysql "${mysql_args[@]}" -e "SELECT SCHEMA_NAME FROM INFORMATION_SCHEMA.SCHEMATA WHERE SCHEMA_NAME='$name'" 2>/dev/null | grep -Fxq "$name"; then
+        log "Creating isolated ZbxTable database: $name"
+        MYSQL_PWD="$pass" mysql "${mysql_args[@]}" -e "CREATE DATABASE IF NOT EXISTS \`$name\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci" || fail "Unable to create database $name; grant CREATE DATABASE or create it manually."
+      else
+        log "Database exists: $name"
+      fi
+      ;;
+    postgresql)
+      command -v psql >/dev/null 2>&1 || fail 'psql client is required to create/check the ZbxTable database. Install postgresql-client or create the database manually.'
+      local result
+      result="$(PGPASSWORD="$pass" psql -h "$host" -p "$port" -U "$user" -d postgres -Atqc "SELECT datname FROM pg_database WHERE datname='${name}'" 2>/dev/null || true)"
+      if [[ "$result" != "$name" ]]; then
+        log "Creating isolated ZbxTable database: $name"
+        PGPASSWORD="$pass" createdb -h "$host" -p "$port" -U "$user" "$name" || fail "Unable to create database $name; grant CREATEDB or create it manually."
+      else
+        log "Database exists: $name"
+      fi
+      ;;
+    *) fail "Unsupported database type: $db_type" ;;
+  esac
+}
+
+# Read a simple key=value setting without sourcing app.conf.  app.conf may
+# contain passwords and user supplied values, so evaluating it as shell code
+# would be unsafe and would also break on values containing spaces or quotes.
+config_value() {
+  local file="$1" key="$2"
+  sed -n "s/^[[:space:]]*${key}[[:space:]]*=[[:space:]]*//p" "$file" | head -n 1 | tr -d '\r'
+}
+
 set_config_value() {
   local file="$1" key="$2" value="$3"
   CONFIG_KEY="$key" CONFIG_VALUE="$value" python3 - "$file" <<'PY'
@@ -80,6 +117,7 @@ else
   [[ -n "$DB_PASS" ]] || fail 'Database password cannot be empty.'
 
   check_port "$DB_HOST" "$DB_PORT" 'database'
+  ensure_database "$DB_TYPE" "$DB_HOST" "$DB_PORT" "$DB_USER" "$DB_PASS" "$DB_NAME"
   mkdir -p "$CONFIG_DIR"
   printf 'httpport=%s\nrunmode=%s\ntimeout=12\nlog_level=3\nlog_path=log\nmaxlines=1000\nmaxsize=0\nmaxdays=10\ndaily=true\ndbtype=%s\ndbhost=%s\ndbuser=%s\ndbpass=%s\ndbname=%s\ndbport=%s\n' \
     "$HTTP_PORT" "$RUN_MODE" "$DB_TYPE" "$DB_HOST" "$DB_USER" "$DB_PASS" "$DB_NAME" "$DB_PORT" > "$CONFIG_FILE"
@@ -132,6 +170,25 @@ if not updated:
 path.write_text('\n'.join(lines) + '\n', encoding='utf-8')
 PY
 fi
+
+# A repair/reinstall commonly preserves app.conf.  Validate (and, when the
+# credentials permit it, create) the configured database on every install,
+# not only when the file is first created.  This prevents a service from being
+# registered successfully while failing on its first database connection.
+CONFIG_DB_TYPE="$(config_value "$CONFIG_FILE" dbtype)"
+CONFIG_DB_HOST="$(config_value "$CONFIG_FILE" dbhost)"
+CONFIG_DB_PORT="$(config_value "$CONFIG_FILE" dbport)"
+CONFIG_DB_USER="$(config_value "$CONFIG_FILE" dbuser)"
+CONFIG_DB_PASS="$(config_value "$CONFIG_FILE" dbpass)"
+CONFIG_DB_NAME="$(config_value "$CONFIG_FILE" dbname)"
+CONFIG_DB_TYPE="${CONFIG_DB_TYPE:-mysql}"
+CONFIG_DB_HOST="${CONFIG_DB_HOST:-127.0.0.1}"
+CONFIG_DB_PORT="${CONFIG_DB_PORT:-3306}"
+CONFIG_DB_USER="${CONFIG_DB_USER:-zbxtable}"
+CONFIG_DB_NAME="${CONFIG_DB_NAME:-zbxtable_lg}"
+[[ -n "$CONFIG_DB_PASS" && "$CONFIG_DB_PASS" != 'change-me' ]] || fail 'Database password is not configured; set dbpass in config/app.conf or ZBXTABLE_DB_PASS and rerun the installer.'
+check_port "$CONFIG_DB_HOST" "$CONFIG_DB_PORT" 'database'
+ensure_database "$CONFIG_DB_TYPE" "$CONFIG_DB_HOST" "$CONFIG_DB_PORT" "$CONFIG_DB_USER" "$CONFIG_DB_PASS" "$CONFIG_DB_NAME"
 chmod 0600 "$CONFIG_FILE"
 mkdir -p "$BUILD_DIR" "$APP_DIR/log" "$APP_DIR/download" "$APP_DIR/upload"
 chmod 0750 "$CONFIG_DIR" "$APP_DIR/log" "$APP_DIR/download" "$APP_DIR/upload"
@@ -169,13 +226,13 @@ if command -v systemctl >/dev/null 2>&1 && [[ "$(id -u)" -eq 0 ]]; then
   fi
   install -d -o zbxtable -g zbxtable -m 0750 "$RUNTIME_ROOT"
   install -m 0755 "$BUILD_DIR/$APP_NAME" "$RUNTIME_ROOT/$APP_NAME"
-  # A repair or direct reinstall must not replace a live configuration with
-  # a stale copy from the source tree. Release installs seed APP_DIR/config
-  # from the saved runtime config; only initialize runtime config when absent.
-  if [[ ! -f "$RUNTIME_ROOT/config/app.conf" ]]; then
-    install -d -o zbxtable -g zbxtable -m 0750 "$RUNTIME_ROOT/config"
-    cp -a "$APP_DIR/config/." "$RUNTIME_ROOT/config/"
-  fi
+  # The validated configuration in APP_DIR is the source of truth. Release
+  # installs copy the previously saved runtime config into APP_DIR before this
+  # step, so syncing on every repair/reinstall preserves settings while also
+  # preventing a stale runtime config from keeping an old port or DB address.
+  install -d -o zbxtable -g zbxtable -m 0750 "$RUNTIME_ROOT/config"
+  rm -f "$RUNTIME_ROOT/config/app.conf"
+  install -o zbxtable -g zbxtable -m 0600 "$APP_DIR/config/app.conf" "$RUNTIME_ROOT/config/app.conf"
   # The explicit --port selection must apply to the config actually read by
   # systemd, including an existing runtime config preserved during repair.
   if [[ -n "${ZBXTABLE_HTTP_PORT:-}" ]]; then

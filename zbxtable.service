@@ -1,5 +1,5 @@
 [Unit]
-Description=ZbxTable 3.0.7 - Zabbix Inspection and Reporting
+Description=ZbxTable - Zabbix Inspection and Reporting
 Documentation=https://github.com/linguyuebai/zbxtable
 After=syslog.target
 After=network.target
@@ -16,7 +16,7 @@ WorkingDirectory=/usr/local/zbxtable
 ExecStart=/usr/local/zbxtable/zbxtable web
 
 # 自动重启配置
-Restart=always
+Restart=on-failure
 RestartSec=3
 
 # 进程管理

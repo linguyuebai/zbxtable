@@ -500,7 +500,12 @@ if [[ "$NO_START" != 1 && -d /run/systemd/system ]] && command -v systemctl >/de
       if curl -fsS --max-time 2 "http://127.0.0.1:$HTTP_PORT/" | grep -qi '<html'; then healthy=1; break; fi
       sleep 1
     done
-    [[ "$healthy" == 1 ]] || fail "Web interface health check failed: http://127.0.0.1:$HTTP_PORT/"
+    if [[ "$healthy" != 1 ]]; then
+      warn "Web interface health check failed: http://127.0.0.1:$HTTP_PORT/"
+      systemctl --no-pager --full status zbxtable.service || true
+      journalctl -u zbxtable.service -n 120 --no-pager || true
+      fail "Web interface health check failed: http://127.0.0.1:$HTTP_PORT/"
+    fi
     check_frontend_assets "http://127.0.0.1:$HTTP_PORT" || fail "Frontend asset health check failed: JavaScript files are not being served correctly on port $HTTP_PORT."
     log 'Web interface health check passed.'
   fi

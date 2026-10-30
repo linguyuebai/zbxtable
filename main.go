@@ -39,5 +39,8 @@ func main() {
 	app.Commands = []*cli.Command{
 		cmd.Web,
 	}
-	app.Run(os.Args)
+	if err := app.Run(os.Args); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
 }

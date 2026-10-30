@@ -44,11 +44,20 @@ Linux：
 
 ```bash
 cd zbxtable
-ZBXTABLE_DB_NAME=zbxtable ZBXTABLE_DB_USER=zbxtable ZBXTABLE_DB_PASS='数据库密码' bash scripts/install.sh
-bash scripts/run.sh
+export ZBXTABLE_DB_TYPE=mysql
+export ZBXTABLE_DB_HOST=127.0.0.1
+export ZBXTABLE_DB_PORT=3306
+export ZBXTABLE_DB_NAME=zbxtable_lg
+export ZBXTABLE_DB_USER=zbxtable
+export ZBXTABLE_DB_PASS='数据库密码'
+export ZBXTABLE_HTTP_PORT=8089
+sudo -E bash scripts/install.sh
+sudo systemctl enable --now zbxtable
 ```
 
-Windows：双击 `scripts\\install.bat` 完成编译和配置，再双击 `scripts\\run.bat` 启动；也可以在 PowerShell 中执行 `scripts\\install.ps1` 和 `scripts\\run.ps1`。脚本默认连接 `127.0.0.1:3306/zabbix`，已有 `config/app.conf` 时不会覆盖配置。
+这是官方的本地后端直部署模式：Go 后端直接提供内置前端，不需要单独启动前端开发服务器或配置反向代理。安装脚本会检查数据库连接，在目标库不存在时创建 `zbxtable_lg`，然后编译并注册 `zbxtable.service`。浏览器访问 `http://服务器IP:8089/user/login`，默认账号为 `admin / Zbxtable`；首次登录后请立即修改密码。完整步骤见[官方模式：本地后端直部署](docs/官方模式-本地后端直部署.md)。
+
+Windows：双击 `scripts\\install.bat` 完成编译和配置，再双击 `scripts\\run.bat` 启动；也可以在 PowerShell 中执行 `scripts\\install.ps1` 和 `scripts\\run.ps1`。PowerShell 安装脚本同样会检查并创建 `zbxtable_lg`（需要本机 `mysql.exe` 或 PostgreSQL 客户端），已有 `config/app.conf` 时不会覆盖配置。
 
 ## 上传 GitHub 和生成压缩包
 

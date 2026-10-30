@@ -105,7 +105,9 @@ func runWeb(*cli.Context) error {
 		fmt.Printf("Installation wizard: http://localhost:%s/install\n", httpport)
 		fmt.Println("Running mode: Installation wizard mode")
 		fmt.Println("ZbxTable service started successfully, waiting for installation configuration...")
-		r.Run(":" + httpport)
+		if err := r.Run(":" + httpport); err != nil {
+			return fmt.Errorf("web server failed on port %s: %w", httpport, err)
+		}
 		return nil
 	}
 
@@ -115,7 +117,7 @@ func runWeb(*cli.Context) error {
 	webCfg, err = ini.Load("./config/app.conf")
 	if err != nil {
 		logger.Log.Error("Failed to load config file:", err)
-		os.Exit(1)
+		return fmt.Errorf("failed to load config file: %w", err)
 	}
 	logger.Log.Info("Config file loaded successfully")
 
@@ -151,7 +153,7 @@ func runWeb(*cli.Context) error {
 		dbname,
 		dbport); err != nil {
 		logger.Log.Error("Database initialization failed:", err)
-		os.Exit(1)
+		return fmt.Errorf("database initialization failed: %w", err)
 	}
 	logger.Log.Info("Database connected successfully")
 	if err := model.ResetStaleRunningReports(0); err != nil {
@@ -193,7 +195,9 @@ func runWeb(*cli.Context) error {
 	fmt.Printf("Database: %s@%s:%s\n", dbtype, dbhost, dbport)
 	fmt.Println("ZbxTable service started successfully!")
 
-	r.Run(":" + httpport)
+	if err := r.Run(":" + httpport); err != nil {
+		return fmt.Errorf("web server failed on port %s: %w", httpport, err)
+	}
 	return nil
 }
 
