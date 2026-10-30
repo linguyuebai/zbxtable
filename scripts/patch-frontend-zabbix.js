@@ -9,6 +9,29 @@ if (!webRoot || !fs.existsSync(path.join(webRoot, 'package.json'))) {
   throw new Error('Usage: node scripts/patch-frontend-zabbix.js <zbxtable-web-source-directory>');
 }
 
+// The official frontend moved from the legacy app/... layout to the current
+// src/... Vue layout. The current tree already contains the Zabbix integration
+// page and service, so applying the legacy string patches would only make the
+// CI build fail with misleading "file is missing" errors. Keep the official
+// pages intact and validate the files that must be present in the new layout.
+if (fs.existsSync(path.join(webRoot, 'src/router/index.js'))) {
+  const requiredModern = [
+    'src/router/index.js',
+    'src/pages/dashboard/index.vue',
+    'src/pages/host/AssetBrowser.vue',
+    'src/pages/alarm/query.vue',
+    'src/pages/report/host.vue',
+    'src/pages/system/zabbix.vue',
+    'src/services/zabbix.js',
+  ];
+  const missingModern = requiredModern.filter(file => !fs.existsSync(path.join(webRoot, file)));
+  if (missingModern.length) {
+    throw new Error(`Official Vue frontend is incomplete; missing: ${missingModern.join(', ')}`);
+  }
+  console.log(`Official Vue frontend detected at ${webRoot}; legacy patch is not required.`);
+  process.exit(0);
+}
+
 function edit(relativePath, transform) {
   const filename = path.join(webRoot, relativePath);
   const original = fs.readFileSync(filename, 'utf8');
